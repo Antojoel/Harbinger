@@ -124,13 +124,14 @@ hard dependency between people — everything else is parallel.
       crashed the app on boot. Added a no-op placeholder so the stub runs
       without Neo4j — Vignesh replaces its internals for real in V2/V4.)*
 
-**🔒 Depends on: verbal agreement with Vignesh on function signatures (5–10 min conversation, not a commit)**
-- [ ] **A4.** Implement real core engine in `services/engine/app/core/engine.py`:
-      `simulate()`, `record_outcome()`, `query_patterns()`, `graph_snapshot()`
-      — call Vignesh's `neo4j_client.py` functions using whatever signature
-      you two agreed on. You can build this against a **local fake** of
-      Vignesh's functions (returning hardcoded graph data) if V4 isn't
-      ready yet — don't block on Vignesh finishing.
+**🔓 No dependency — signatures are finalized, no conversation needed:**
+- [x] ~~**A4.** Implement real core engine in `services/engine/app/core/engine.py`:
+      `simulate()`, `record_outcome()`, `query_patterns()`, `graph_snapshot()`.~~
+      *(done and verified against 5 real payloads — unit mismatch, HS code
+      mismatch, and clean-shipment cases all detect correctly with no
+      false positives; record-outcome/patterns/graph correctly return
+      sparse/empty results since they depend on Vignesh's still-stubbed
+      graph_client methods, not a bug. Ready for A5 the moment V4 lands.)*
 
 **🔒 Depends on: A3 (stub live)**
 - [ ] **A6.** Build the MCP server in `services/mcp-server/server.py`:
@@ -165,13 +166,15 @@ hard dependency between people — everything else is parallel.
 ## Vignesh — Backend: Immune Memory Graph
 
 **🔓 No dependency — start immediately:**
-- [ ] **V1.** Agree with Anto (verbally, ~10 min) on the exact function
-      signatures he'll call, e.g.:
-      `find_matching_patterns(hs_code: str, country: str, documents: dict) -> list[Pattern]`
-      `record_pattern(rejection_reason: str, shipment_context: dict) -> Pattern`
-      Write these down in `services/engine/app/graph/neo4j_client.py` as
-      function stubs (empty bodies, correct signatures) so Anto can import
-      against them even before they're implemented.
+- [x] ~~**V1.** Agree with Anto (verbally, ~10 min) on the exact function
+      signatures he'll call~~ *(done without a live conversation — the
+      finalized interface is written directly into
+      `services/engine/app/graph/neo4j_client.py`:
+      `get_required_certificates()`, `find_matching_patterns()`,
+      `record_pattern()`, `list_patterns()`, `get_graph_snapshot()`, each
+      with full docstrings and expected return shapes. Implement the
+      bodies of these exact methods — don't rename or change signatures
+      without telling Anto, since A4 is being built against them as-is.)*
 - [ ] **V2.** Design the Neo4j schema: nodes (`HSCode {code, description}`,
       `Country {name, code}`, `CertificateRequirement {name, issuing_body}`,
       `DocumentType {name}`, `RejectionReason {reason_code, description}`,
@@ -182,9 +185,11 @@ hard dependency between people — everything else is parallel.
       missing certificate) across a handful of shipments
 
 **🔓 No external dependency, but blocks Anto's A5:**
-- [ ] **V4.** Implement the real Cypher queries in `neo4j_client.py` behind
-      the signatures from V1. **When done, tell Anto directly** — this is
-      what unblocks his A5. Don't just push and assume he'll notice.
+- [ ] **V4.** Implement the real Cypher queries behind the 5 finalized
+      methods on `GraphClient` in `neo4j_client.py` (see V1 above — the
+      signatures and docstrings are already there, just fill in the
+      bodies). **When done, tell Anto directly** — this is what unblocks
+      his A5. Don't just push and assume he'll notice.
 
 ---
 
