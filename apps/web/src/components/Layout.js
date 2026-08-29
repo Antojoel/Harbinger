@@ -16,7 +16,7 @@ const NAV = [
 ];
 
 const Nav = () => (
-  <nav className="space-y-1">
+  <nav className="flex overflow-x-auto pb-1 gap-1 sm:flex-col sm:space-y-1 sm:gap-0">
     {NAV.map((n) => (
       <NavLink
         key={n.to}
@@ -24,7 +24,7 @@ const Nav = () => (
         end={n.end}
         data-testid={`nav-${n.label.toLowerCase().replace(/\s/g, "-")}`}
         className={({ isActive }) =>
-          `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+          `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors whitespace-nowrap shrink-0 ${
             isActive
               ? "bg-accent text-accent-foreground font-medium"
               : "text-muted-foreground hover:bg-muted hover:text-foreground"

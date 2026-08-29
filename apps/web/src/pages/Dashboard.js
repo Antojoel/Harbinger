@@ -63,7 +63,7 @@ export default function Dashboard() {
           <>
             <Stat icon={Boxes} label="Shipments" value={stats.total_shipments} sub="in the book" tint="hsl(210 90% 40%)" />
             <Stat icon={AlertTriangle} label="At risk" value={stats.at_risk} sub="hold risk ≥ 25" tint="hsl(38 92% 45%)" />
-            <Stat icon={Gauge} label="Avg hold risk" value={stats.avg_hold_probability} sub="across book" tint="hsl(0 72% 51%)" />
+            <Stat icon={Gauge} label="Avg hold risk" value={`${stats.avg_hold_probability}%`} sub="across book" tint="hsl(0 72% 51%)" />
             <Stat icon={TrendingDown} label="Cost avoided" value={fmtINR(stats.cost_avoided_inr)} sub={`${stats.outcomes_recorded} outcomes recorded`} tint="hsl(173 70% 33%)" />
           </>
         ) : (

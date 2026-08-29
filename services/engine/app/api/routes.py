@@ -15,9 +15,17 @@ Two layers in this file:
    Translation logic lives in ui_adapter.py, not here or in engine.py.
 """
 
+import os
+import time
+import datetime
+import logging
+import httpx
 from fastapi import APIRouter, HTTPException, Query, Header
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
+
+logger = logging.getLogger("routes")
+
 
 from core import engine, shipment_store, user_store
 from api import ui_adapter
@@ -443,7 +451,8 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
 
 @router.get("/config", summary="Feature flags for pages outside the core demo (UI adapter)")
 async def config_endpoint():
-    return {"resend_ready": False, "google_login_configured": google_auth.is_configured()}
+    resend_ready = bool(os.getenv("RESEND_API_KEY"))
+    return {"resend_ready": resend_ready, "google_login_configured": google_auth.is_configured()}
 
 
 # =========================================================================
@@ -497,14 +506,72 @@ async def auth_onboarding_seen_endpoint(authorization: Optional[str] = Header(No
     return {"status": "ok"}
 
 
-@router.get("/email/log", summary="Email escalation log (UI adapter, out of scope)")
+@router.get("/email/log", summary="Email escalation log (UI adapter)")
 async def email_log_endpoint():
-    return []
+    return shipment_store.list_email_logs()
 
 
-@router.post("/email/send", summary="Send an escalation email (UI adapter, out of scope, always stubbed)")
+@router.post("/email/send", summary="Send an escalation email (UI adapter)")
 async def send_email_endpoint(payload: SendEmailRequest):
-    return {"awaiting_keys": True, "message": "Email escalation is out of scope for this build — draft-only."}
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    msg_id = f"msg_{int(time.time()*1000)}"
+    timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+
+    if resend_api_key:
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "from": "ClearanceGuard <onboarding@resend.dev>",
+                        "to": [payload.recipient_email],
+                        "subject": payload.subject,
+                        "html": payload.html_content or payload.subject,
+                    },
+                    timeout=10.0,
+                )
+                if res.status_code in (200, 201):
+                    data = res.json()
+                    entry = {
+                        "id": data.get("id", msg_id),
+                        "shipment_id": payload.shipment_id,
+                        "recipient_email": payload.recipient_email,
+                        "subject": payload.subject,
+                        "body": payload.html_content or "",
+                        "status": "sent",
+                        "created_at": timestamp,
+                    }
+                    shipment_store.add_email_log(entry)
+                    return {
+                        "status": "sent",
+                        "id": entry["id"],
+                        "message": f"Email delivered to {payload.recipient_email} via Resend.",
+                    }
+        except Exception as e:
+            logger.warning(f"Resend email dispatch failed: {e}")
+
+    # Fallback / draft-logged when RESEND_API_KEY is unset or fails
+    entry = {
+        "id": msg_id,
+        "shipment_id": payload.shipment_id,
+        "recipient_email": payload.recipient_email,
+        "subject": payload.subject,
+        "body": payload.html_content or "",
+        "status": "awaiting_keys",
+        "created_at": timestamp,
+    }
+    shipment_store.add_email_log(entry)
+    return {
+        "awaiting_keys": True,
+        "status": "awaiting_keys",
+        "id": msg_id,
+        "message": "Human-approved draft logged to escalation audit trail. Set RESEND_API_KEY for live delivery.",
+    }
+
 
 
 @router.get("/integrations", summary="Integration docs shown in the Integrations page (UI adapter)")

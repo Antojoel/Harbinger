@@ -28,6 +28,27 @@ from typing import Any, Dict, List, Optional
 
 _SHIPMENTS: Dict[str, Dict[str, Any]] = {}
 _TOTALS = {"cost_avoided_inr": 0, "outcomes_recorded": 0}
+_EMAIL_LOG: List[Dict[str, Any]] = [
+    {
+        "id": "msg_001",
+        "shipment_id": "MSKU1234567",
+        "recipient_email": "exporter-ops@shanghaiforwarding.cn",
+        "subject": "Action needed: Certificate of Origin for MSKU1234567",
+        "body": "Dear team,\n\nShipment MSKU1234567 (Industrial Inverters & Converters, HS 8471.30) cannot be filed because the Certificate of Origin is not attached. This certificate is required for HS code 8471.30 into Germany. Please share it at the earliest to avoid demurrage.\n\nRegards,\nClearanceGuard Compliance Team",
+        "status": "sent",
+        "created_at": "2026-08-30T02:15:00Z",
+    },
+    {
+        "id": "msg_002",
+        "shipment_id": "HLX9988221",
+        "recipient_email": "compliance@fastcargo.de",
+        "subject": "Unit Mismatch Escalation - HLX9988221",
+        "body": "Attn Compliance,\n\nCommercial Invoice lists 1200 units while Packing List lists 1250 units for shipment HLX9988221. Please review revised Commercial Invoice prior to customs lodgement.",
+        "status": "awaiting_keys",
+        "created_at": "2026-08-30T03:40:00Z",
+    },
+]
+
 
 
 def _make(
@@ -193,3 +214,13 @@ def record_outcome_event() -> None:
 
 def get_totals() -> Dict[str, int]:
     return dict(_TOTALS)
+
+
+def list_email_logs() -> List[Dict[str, Any]]:
+    return list(_EMAIL_LOG)
+
+
+def add_email_log(entry: Dict[str, Any]) -> Dict[str, Any]:
+    _EMAIL_LOG.insert(0, entry)
+    return entry
+

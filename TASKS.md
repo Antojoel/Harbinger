@@ -298,16 +298,25 @@ Verified live against real accounts: both OpenAI and Vertex-Gemini came back
 correctly grounded and free of internal IDs; either degrades cleanly to the
 heuristic template if its credential is missing. 13 new tests, 105/105 total.
 
-**🚩 Flag for Vignesh (found while adding a Neo4j data volume, not fixed here):**
-`GraphClient`'s driver doesn't auto-reconnect if Neo4j restarts while the
-engine stays up — `execute_read`/`execute_write` catch `ServiceUnavailable`
-and return `[]`/degraded-mode results, but nothing re-attempts opening a
-fresh connection afterward, so it stays degraded until the engine itself
-restarts. Confirmed with a real test: Neo4j force-recreated, data
-survived (it's now on a persistent volume), but `/api/patterns` kept
-returning empty until `docker-compose restart engine`. Not urgent for a
-normal `docker-compose up`, but worth a `connect()` retry/health-check
-path if there's time.
+**✅ Fixed — Neo4j auto-reconnect (was flagged for Vignesh):**
+`GraphClient` didn't auto-reconnect if Neo4j restarted while the engine
+stayed up — `execute_read`/`execute_write` caught `ServiceUnavailable` and
+returned `[]`/degraded-mode results, but nothing re-attempted opening a
+fresh connection afterward, so it stayed degraded until the engine itself
+restarted. Fixed in `graph/neo4j_client.py`: a `ServiceUnavailable` now
+invalidates the stale driver (`_invalidate_driver()`), and the next query
+lazily retries `connect()` (`_maybe_reconnect()`, rate-limited to once per
+5s so a sustained outage doesn't turn every request into a ~15s blocking
+call). A generic `Neo4jError` (bad Cypher, not a connectivity problem)
+does NOT invalidate the driver — no reason to throw away a healthy pool
+over a query bug. Verified live, twice: (1) force-recreated the Neo4j
+container — the driver's own internal transaction retry silently absorbed
+that blip, no fix needed; (2) stopped Neo4j entirely for the fix's actual
+target scenario — `/api/patterns` correctly degraded to empty after
+exhausting retries (~30s), then self-healed to the real 3 patterns on the
+very next request after Neo4j came back, with **no** `docker-compose
+restart engine` needed. 5 new unit tests (mocked driver/session), 110/110
+engine tests pass.
 ---
 
 ## Harish — Frontend: React + Tailwind
@@ -342,10 +351,12 @@ path if there's time.
       Email escalation and the Integrations page were out of scope — both
       routes still exist and don't crash, but are stubbed
       (`/api/config`, `/api/email/*`, `/api/integrations`), not real.)*
-- [ ] **H-next.** Harish: pull, `npm install`, `npm run dev`, and take this
-      over for real — polish, fix anything that looks off, and own it going
-      forward. This was an emergency wire-in to unblock the demo, not a
-      replacement for you driving the frontend.
+- [x] ~~**H-next.** Harish / Antigravity: frontend ownership & polish pass~~
+      *(completed:
+      1. Wired real backend email escalation storage in `shipment_store.py` (`_EMAIL_LOG`, `list_email_logs`, `add_email_log`) and updated `/api/email/send`, `/api/email/log`, `/api/config` in `routes.py` with Resend API support and audit trail logging.
+      2. Upgraded `EmailPage.js` with prefilled shipment routing, status badges (`Delivered` / `Draft Logged`), audit log list, and detail modal.
+      3. Added `%` unit formatting to `Avg hold risk` on `Dashboard.js` and responsive mobile navigation in `Layout.js`.
+      4. Verified clean production `vite build` with 0 errors.)*
 
 **Nothing here depends on A4, A5, A6, A7, or A8 being real** — the contract
 is the only thing that matters to you. If something you need isn't in the
