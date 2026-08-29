@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 from graph import rules
@@ -47,6 +48,11 @@ NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 # Connection pool lifetime / acquisition timeouts (seconds).
 _CONNECTION_TIMEOUT = 15
 _MAX_TRANSACTION_RETRY_TIME = 15
+
+# Minimum gap between lazy reconnect attempts while degraded, so a sustained
+# outage doesn't turn every single query into a blocking connect() call
+# (connect() can take up to _CONNECTION_TIMEOUT seconds to fail).
+_RECONNECT_COOLDOWN_SECONDS = 5.0
 
 # ---------------------------------------------------------------------------
 # Cypher
@@ -137,6 +143,7 @@ class GraphClient:
 
     def __init__(self) -> None:
         self._driver: Driver | None = None
+        self._last_reconnect_attempt: float = 0.0
 
     # -- connection lifecycle ------------------------------------------------
 
@@ -198,6 +205,8 @@ class GraphClient:
         write: bool,
     ) -> list[dict[str, Any]]:
         if self._driver is None:
+            self._maybe_reconnect()
+        if self._driver is None:
             logger.debug(
                 "Skipping %s query, Neo4j not connected", "write" if write else "read"
             )
@@ -212,9 +221,53 @@ class GraphClient:
                 if write:
                     return session.execute_write(work)
                 return session.execute_read(work)
-        except (ServiceUnavailable, Neo4jError) as exc:
+        except ServiceUnavailable as exc:
+            logger.error("Cypher %s failed: %s", "write" if write else "read", exc)
+            # Unlike a query-shape error (Neo4jError below), this means the
+            # connection itself is bad - e.g. Neo4j was restarted mid-session
+            # and the driver's pool is holding stale sockets. Drop it so the
+            # *next* call attempts a fresh connect() instead of retrying
+            # forever against a driver that will never recover on its own
+            # (confirmed live: without this, /api/patterns stayed empty until
+            # a manual `docker-compose restart engine`).
+            self._invalidate_driver()
+            return []
+        except Neo4jError as exc:
             logger.error("Cypher %s failed: %s", "write" if write else "read", exc)
             return []
+
+    def _invalidate_driver(self) -> None:
+        """Drop the current driver so the next query attempts connect() fresh
+        instead of reusing a pool pointed at a dead Neo4j instance."""
+        if self._driver is None:
+            return
+        try:
+            self._driver.close()
+        except Neo4jError:  # pragma: no cover - defensive, matches close()
+            pass
+        self._driver = None
+        logger.warning(
+            "Neo4j connection lost; will retry lazily on the next query "
+            "(at most every %ss)",
+            _RECONNECT_COOLDOWN_SECONDS,
+        )
+
+    def _maybe_reconnect(self) -> None:
+        """Best-effort, rate-limited reconnect attempt while degraded.
+
+        Called lazily before a query rather than via a background loop -
+        simplest thing that works for a service this size, and it means a
+        request made right as Neo4j comes back up self-heals on the spot
+        instead of waiting for the next scheduled check. Rate-limited
+        because connect() can block for up to _CONNECTION_TIMEOUT seconds,
+        which would otherwise turn every single query during a sustained
+        outage into a slow one.
+        """
+        now = time.monotonic()
+        if now - self._last_reconnect_attempt < _RECONNECT_COOLDOWN_SECONDS:
+            return
+        self._last_reconnect_attempt = now
+        self.connect()
 
     # -- schema --------------------------------------------------------------
 
