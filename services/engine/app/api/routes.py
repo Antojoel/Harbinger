@@ -15,13 +15,13 @@ Two layers in this file:
    Translation logic lives in ui_adapter.py, not here or in engine.py.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 
-from core import engine, shipment_store
+from core import engine, shipment_store, user_store
 from api import ui_adapter
-from integrations import razorpay_client
+from integrations import razorpay_client, google_auth
 
 router = APIRouter()
 
@@ -80,6 +80,10 @@ class SendEmailRequest(BaseModel):
     subject: str
     html_content: Optional[str] = ""
     shipment_id: Optional[str] = None
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(..., description="Google Identity Services ID token from the frontend")
 
 
 # =========================================================================
@@ -411,7 +415,58 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
 
 @router.get("/config", summary="Feature flags for pages outside the core demo (UI adapter)")
 async def config_endpoint():
-    return {"resend_ready": False}
+    return {"resend_ready": False, "google_login_configured": google_auth.is_configured()}
+
+
+# =========================================================================
+# AUTH — Google Sign-In with a guest fallback (degrades gracefully if
+# GOOGLE_CLIENT_ID isn't set, same pattern as the Razorpay integration)
+# =========================================================================
+
+def _current_user(authorization: Optional[str]) -> Dict[str, Any]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
+    claims = google_auth.verify_session_token(authorization.removeprefix("Bearer ").strip())
+    if not claims:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    user = user_store.get_user(claims["sub"])
+    if not user:
+        raise HTTPException(status_code=401, detail="Session refers to an unknown user")
+    return user
+
+
+@router.post("/auth/google", summary="Exchange a Google ID token for a session")
+async def auth_google_endpoint(payload: GoogleLoginRequest):
+    try:
+        claims = google_auth.verify_google_id_token(payload.id_token)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    user, is_new_user = user_store.get_or_create(
+        claims["sub"], claims["email"], claims["name"], claims.get("picture", "")
+    )
+    token = google_auth.issue_session_token(user["id"], user["email"], user["name"])
+    return {"token": token, "user": user, "is_new_user": is_new_user}
+
+
+@router.post("/auth/guest", summary="Start a guest session (no Google login required)")
+async def auth_guest_endpoint():
+    guest_id = google_auth.new_guest_id()
+    user, is_new_user = user_store.get_or_create(guest_id, "", "Guest", "")
+    token = google_auth.issue_session_token(user["id"], user["email"], user["name"])
+    return {"token": token, "user": user, "is_new_user": is_new_user}
+
+
+@router.get("/auth/me", summary="Get the current session's user")
+async def auth_me_endpoint(authorization: Optional[str] = Header(None)):
+    return {"user": _current_user(authorization)}
+
+
+@router.post("/auth/onboarding-seen", summary="Mark the onboarding walkthrough as completed")
+async def auth_onboarding_seen_endpoint(authorization: Optional[str] = Header(None)):
+    user = _current_user(authorization)
+    user_store.mark_onboarding_seen(user["id"])
+    return {"status": "ok"}
 
 
 @router.get("/email/log", summary="Email escalation log (UI adapter, out of scope)")

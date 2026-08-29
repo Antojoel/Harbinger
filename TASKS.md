@@ -290,3 +290,43 @@ hard dependency between people — everything else is parallel.
 is the only thing that matters to you. If something you need isn't in the
 contract above, add it there yourself and flag it to Anto rather than
 guessing a shape.
+
+---
+
+## A9 — Google Sign-In + first-time onboarding walkthrough (Anto)
+
+- [x] ~~Add login (Google, with a guest fallback) and a first-time-user
+      onboarding tour.~~
+      *(done. Apple Sign-In was scoped out — it needs a paid, already-
+      verified Apple Developer account plus domain verification, not
+      achievable in the time left, not a code problem. Google-only.)*
+      - Backend: `core/user_store.py` (in-memory users, mirrors
+        `shipment_store.py`), `integrations/google_auth.py` (verifies
+        Google ID tokens, issues our own signed session JWTs). New
+        endpoints: `POST /api/auth/google`, `POST /api/auth/guest`,
+        `GET /api/auth/me`, `POST /api/auth/onboarding-seen`.
+        `GET /api/config` now also reports `google_login_configured`.
+      - **Deliberate scope boundary**: auth gates the dashboard UI only.
+        None of the existing business endpoints (`/simulate`,
+        `/shipments`, etc.) were touched or put behind a login check —
+        doing that would've broken the MCP server's existing calls, which
+        have no concept of a session token, and would contradict the
+        product's own "pluggable engine, connect via REST or MCP"
+        positioning.
+      - Degrades gracefully like Razorpay: if `GOOGLE_CLIENT_ID` isn't
+        set, the login page shows "Continue as Guest" instead of a hard
+        wall — verified both paths work.
+      - Frontend: `AuthContext.jsx`, `Login.jsx` (Google button via
+        Identity Services + guest fallback), `OnboardingTour.jsx` (5-step
+        modal, shown when `is_new_user` or `!has_seen_onboarding`), a
+        logout control in `Layout.js`'s header.
+      - Verified end-to-end against a real seeded Neo4j + a real running
+        frontend: guest login → session resume on reload → onboarding
+        completion → persisted `has_seen_onboarding: true` on next reload.
+        Full `vite build` succeeds clean.
+      - New env vars: `GOOGLE_CLIENT_ID` / `VITE_GOOGLE_CLIENT_ID` (same
+        value, backend + frontend) and `SESSION_SECRET` — see
+        `.env.example`. Nobody has a real Google Client ID plugged in yet;
+        someone needs to create one at console.cloud.google.com (~5 min,
+        free, self-serve) for real Google login to activate — guest login
+        works today regardless.

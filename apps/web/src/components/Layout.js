@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutGrid, CreditCard, Mail, Plug, ShieldCheck, Network } from "lucide-react";
+import { LayoutGrid, CreditCard, Mail, Plug, ShieldCheck, Network, LogOut } from "lucide-react";
 import { GraphPanel, GraphLegend } from "@/components/GraphPanel";
 import { VoiceWidget } from "@/components/VoiceWidget";
 import { useGraph } from "@/context/GraphContext";
+import { useAuth } from "@/context/AuthContext";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 
@@ -66,6 +67,7 @@ const GraphSide = () => {
 
 export const Layout = ({ children }) => {
   const location = useLocation();
+  const { user, logout } = useAuth();
   const [mobileGraph, setMobileGraph] = useState(false);
   useEffect(() => setMobileGraph(false), [location.pathname]);
 
@@ -86,9 +88,19 @@ export const Layout = ({ children }) => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden rounded-full border bg-muted px-2.5 py-1 text-[11px] text-muted-foreground sm:inline">
-              Sirius Freight · Bengaluru
-            </span>
+            {user && (
+              <div className="hidden items-center gap-2 sm:flex">
+                {user.picture ? (
+                  <img src={user.picture} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />
+                ) : null}
+                <span className="rounded-full border bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+                  {user.name}
+                </span>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={logout} data-testid="logout-button">
+                  <LogOut className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
             <div className="lg:hidden">
               <Sheet open={mobileGraph} onOpenChange={setMobileGraph}>
                 <SheetTrigger asChild>

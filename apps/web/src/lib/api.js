@@ -3,7 +3,21 @@ import axios from "axios";
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
+const TOKEN_KEY = "harbinger_session_token";
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
 const client = axios.create({ baseURL: API });
+
+client.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export const api = {
   config: () => client.get("/config").then((r) => r.data),
@@ -25,6 +39,11 @@ export const api = {
   emailLog: () => client.get("/email/log").then((r) => r.data),
   sendEmail: (payload) => client.post("/email/send", payload).then((r) => r.data),
   integrations: () => client.get("/integrations").then((r) => r.data),
+
+  googleLogin: (id_token) => client.post("/auth/google", { id_token }).then((r) => r.data),
+  guestLogin: () => client.post("/auth/guest").then((r) => r.data),
+  me: () => client.get("/auth/me").then((r) => r.data),
+  markOnboardingSeen: () => client.post("/auth/onboarding-seen").then((r) => r.data),
 };
 
 export const fmtINR = (n) =>

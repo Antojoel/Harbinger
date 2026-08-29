@@ -68,6 +68,7 @@ The graph isn't just storage — it's rendered live in the web app. Confirming a
 | Orchestration | Docker Compose |
 | Voice interface | Browser Web Speech API (client-side STT/TTS) for the dashboard's voice widget; local-model text pipeline (Vignesh, V5) for the locked `/api/voice-query` contract |
 | Payments | Razorpay, live test-mode integration |
+| Auth | Google Sign-In (Identity Services + server-side ID token verification), with a guest-login fallback |
 
 ## 🚀 Quickstart
 
