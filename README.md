@@ -132,12 +132,15 @@ The speech backend is set by `VOICE_PROVIDER`:
 | `text_only` *(default)* | none — `audio_base64` is treated as UTF-8 text | nothing |
 | `openai` | OpenAI `/audio/transcriptions` + `/audio/speech` | `OPENAI_API_KEY` |
 | `gemini` | Gemini `generateContent` | `GEMINI_API_KEY` |
-| `local` | `stt` (Kroko / Zipformer on sherpa-onnx) + `tts` (Kokoro-82M) containers | — |
+| `local` | `stt` (faster-whisper, or Kroko/sherpa-onnx via `STT_ENGINE=sherpa`) + `tts` (Kokoro-82M) containers | — |
 
 The risk answer is always computed locally from the graph; only speech I/O varies. The
-`stt` (`:8100`) and `tts` (`:8200`) services come up with `docker-compose up`. TTS runs on
-CPU by default — build `services/tts` with `--build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126`
-and set `gpus: all` for NVIDIA, or run natively with `TTS_BACKEND=mlx` on Apple Silicon.
+`stt` (`:8100`) and `tts` (`:8200`) services come up with `docker-compose up` and both
+request the GPU (`gpus: all`, needs nvidia-container-toolkit). `stt` defaults to
+faster-whisper (`STT_WHISPER_MODEL=small.en`) and uses CUDA automatically, falling back
+to CPU int8. The `tts` image builds against a CUDA torch wheel by default
+(`TORCH_INDEX_URL`; override to `.../whl/cpu` for a CPU-only host); on Apple Silicon run
+it natively with `TTS_BACKEND=mlx`.
 
 **Local stdio (e.g. Claude Desktop / Claude Code):** run it directly and point the engine at your local instance —
 

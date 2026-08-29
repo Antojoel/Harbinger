@@ -14,6 +14,7 @@ import logging
 import os
 
 import numpy as np
+
 from config import FEATURE_DIM, SAMPLE_RATE, STTConfig
 
 logger = logging.getLogger("harbinger.stt")

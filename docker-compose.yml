@@ -45,9 +45,11 @@ services:
       neo4j:
         condition: service_healthy
 
-  # 2b. Speech-to-text (Kroko / Zipformer on sherpa-onnx) — used when
-  #     VOICE_PROVIDER=local. Downloads a public model on first start; set
-  #     STT_HF_REPO=Banafo/test-onnx + STT_HF_TOKEN for the real Kroko models.
+  # 2b. Speech-to-text. Default engine: faster-whisper (Whisper on CTranslate2),
+  #     CUDA-accelerated when a GPU is visible. Weights are baked into the image.
+  #     Set STT_ENGINE=sherpa for the lighter streaming Zipformer / Kroko model.
+  #     `gpus: all` needs nvidia-container-toolkit on the host; on a CPU-only
+  #     box drop that block and the engine falls back to CPU int8.
   stt:
     build:
       context: ./services/stt
@@ -56,25 +58,31 @@ services:
     ports:
       - "8100:8100"
     environment:
+      - STT_ENGINE=${STT_ENGINE:-faster_whisper}
+      - STT_WHISPER_MODEL=${STT_WHISPER_MODEL:-small.en}
+      - STT_DEVICE=${STT_DEVICE:-auto}
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-auto}
+      - STT_LANGUAGE=${STT_LANGUAGE:-en}
+      # only used when STT_ENGINE=sherpa:
       - STT_HF_REPO=${STT_HF_REPO:-csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26}
       - STT_HF_TOKEN=${STT_HF_TOKEN:-}
-    volumes:
-      - stt-models:/models
+    gpus: all
 
-  # 2c. Text-to-speech (Kokoro-82M) — used when VOICE_PROVIDER=local.
-  #     For NVIDIA GPU: build with TORCH_INDEX_URL=.../cu126 and uncomment the
-  #     `gpus` line below (needs nvidia-container-toolkit on the host).
+  # 2c. Text-to-speech (Kokoro-82M). Runs on CUDA when the image is built with a
+  #     CUDA torch wheel (TORCH_INDEX_URL) and the container gets a GPU.
   tts:
     build:
       context: ./services/tts
       dockerfile: Dockerfile
+      args:
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}
     container_name: harbinger-tts
     ports:
       - "8200:8200"
     environment:
       - KOKORO_DEVICE=${KOKORO_DEVICE:-auto}
       - KOKORO_VOICE=${KOKORO_VOICE:-af_heart}
-    # gpus: all
+    gpus: all
     volumes:
       - tts-models:/models
 
@@ -115,5 +123,4 @@ services:
 
 volumes:
   neo4j_data:
-  stt-models:
   tts-models:

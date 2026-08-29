@@ -268,7 +268,7 @@ def _first_inline_data(data: dict) -> str:
 
 
 class LocalProvider:
-    """Calls the bundled ``stt`` (sherpa-onnx / Kroko) and ``tts`` (Kokoro) services."""
+    """Calls the bundled ``stt`` (faster-whisper / Kroko) and ``tts`` (Kokoro) services."""
 
     name = "local"
 

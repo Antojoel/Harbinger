@@ -6,13 +6,15 @@ import shutil
 import wave
 from io import BytesIO
 
-import app as app_module
 import numpy as np
 import pytest
-from audio import AudioDecodeError, decode_to_mono_16k
-from config import SAMPLE_RATE, STTConfig
 from fastapi.testclient import TestClient
+
+import app as app_module
+from audio import AudioDecodeError, decode_to_mono_16k
+from config import DEFAULT_ENGINE, SAMPLE_RATE, STTConfig
 from recognizer import _resolve_model_files
+from whisper_engine import resolve_device
 
 _HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
@@ -31,23 +33,54 @@ def _make_wav_bytes(seconds: float = 0.2, rate: int = SAMPLE_RATE) -> bytes:
 
 @pytest.mark.unit
 class TestConfig:
-    def test_defaults_are_public_model(self):
+    def test_default_engine_is_faster_whisper(self):
         config = STTConfig.from_env({})
-        assert "sherpa-onnx-streaming-zipformer" in config.hf_repo
-        assert config.hf_token == ""
+        assert config.engine == DEFAULT_ENGINE == "faster_whisper"
+        assert config.whisper_model == "small.en"
+        assert config.device == "auto"
         assert config.port == 8100
 
-    def test_kroko_override(self):
+    def test_invalid_engine_falls_back_to_default(self):
+        assert STTConfig.from_env({"STT_ENGINE": "banana"}).engine == "faster_whisper"
+
+    def test_whisper_overrides(self):
         config = STTConfig.from_env(
             {
-                "STT_HF_REPO": "Banafo/test-onnx",
-                "STT_HF_TOKEN": "hf_x",
-                "STT_PROVIDER": "cuda",
+                "STT_WHISPER_MODEL": "large-v3",
+                "STT_DEVICE": "cuda",
+                "STT_COMPUTE_TYPE": "float16",
+                "STT_LANGUAGE": "",
+                "STT_VAD_FILTER": "0",
             }
         )
+        assert config.whisper_model == "large-v3"
+        assert config.device == "cuda"
+        assert config.compute_type == "float16"
+        assert config.language == ""
+        assert config.vad_filter is False
+
+    def test_sherpa_engine_selectable(self):
+        config = STTConfig.from_env(
+            {"STT_ENGINE": "sherpa", "STT_HF_REPO": "Banafo/test-onnx", "STT_HF_TOKEN": "hf_x"}
+        )
+        assert config.engine == "sherpa"
         assert config.hf_repo == "Banafo/test-onnx"
         assert config.hf_token == "hf_x"
-        assert config.provider == "cuda"
+
+
+@pytest.mark.unit
+class TestResolveDevice:
+    def test_explicit_cpu(self):
+        cfg = STTConfig.from_env({"STT_DEVICE": "cpu", "STT_COMPUTE_TYPE": "int8"})
+        assert resolve_device(cfg) == ("cpu", "int8")
+
+    def test_auto_without_cuda_is_cpu_int8(self, monkeypatch):
+        monkeypatch.setattr("whisper_engine._cuda_available", lambda: False)
+        assert resolve_device(STTConfig.from_env({})) == ("cpu", "int8")
+
+    def test_auto_with_cuda_is_cuda_float16(self, monkeypatch):
+        monkeypatch.setattr("whisper_engine._cuda_available", lambda: True)
+        assert resolve_device(STTConfig.from_env({})) == ("cuda", "float16")
 
 
 @pytest.mark.unit
@@ -91,7 +124,9 @@ class TestAudioDecode:
             decode_to_mono_16k(b"not audio at all" * 10)
 
 
-class _FakeRecognizer:
+class _FakeEngine:
+    device = "cpu"
+
     def __init__(self, text="what is the hold risk"):
         self.text = text
         self.received: np.ndarray | None = None
@@ -103,9 +138,9 @@ class _FakeRecognizer:
 
 @pytest.fixture
 def client(monkeypatch):
-    fake = _FakeRecognizer()
-    monkeypatch.setattr(app_module, "_recognizer", fake)
-    monkeypatch.setattr(app_module, "build_recognizer", lambda _c: fake)
+    fake = _FakeEngine()
+    monkeypatch.setattr(app_module, "_engine", fake)
+    monkeypatch.setattr(app_module, "build_engine", lambda _c: fake)
     monkeypatch.setattr(
         app_module,
         "decode_to_mono_16k",
@@ -121,6 +156,8 @@ class TestTranscribeEndpoint:
     def test_health(self, client):
         body = client.get("/health").json()
         assert body["status"] == "ok"
+        assert body["engine"] == "faster_whisper"
+        assert body["device"] == "cpu"
         assert body["sample_rate"] == SAMPLE_RATE
 
     def test_transcribe_returns_text(self, client):

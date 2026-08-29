@@ -1,19 +1,23 @@
-# Harbinger STT (Kroko / Zipformer on sherpa-onnx).
+# Harbinger STT.
 #
 #   docker build -t harbinger-stt services/stt
 #
-# CPU only by default (streaming Zipformer runs comfortably faster than
-# real time on CPU). For CUDA, install a GPU sherpa-onnx build and set
-# STT_PROVIDER=cuda.
+# Default engine is faster-whisper (Whisper on CTranslate2). It runs on CUDA
+# automatically when the container can see a GPU:
 #
-# The default model is public and downloaded on first start. To use the real
-# Kroko community models, set STT_HF_REPO=Banafo/test-onnx and STT_HF_TOKEN,
-# or mount a model directory and set STT_MODEL_DIR.
+#   docker run --gpus all -p 8100:8100 harbinger-stt
+#
+# With no GPU it falls back to CPU int8. Set STT_ENGINE=sherpa to use the
+# lighter streaming Zipformer / Kroko transducer instead.
 
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    HF_HOME=/models
+    HF_HOME=/models \
+    STT_MODEL_CACHE=/models
+
+# CTranslate2 loads cuBLAS / cuDNN from the pip-installed nvidia-*-cu12 wheels.
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib
 
 WORKDIR /app
 
@@ -25,8 +29,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY *.py ./
 
-# Bake the default model into the image so first request is fast / offline-safe.
-RUN python -c "from config import STTConfig; from recognizer import _resolve_model_files; _resolve_model_files(STTConfig())"
+# Bake the default Whisper weights into the image (fetched on CPU, used on GPU
+# at runtime) so the first request is fast and works offline.
+ARG STT_WHISPER_MODEL=small.en
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${STT_WHISPER_MODEL}', device='cpu', compute_type='int8', download_root='/models')"
 
 EXPOSE 8100
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import subprocess
 
 import numpy as np
+
 from config import SAMPLE_RATE
 
 
