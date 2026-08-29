@@ -76,19 +76,27 @@ export const GraphPanel = ({ compact = false }) => {
         });
       });
     });
-    const rfEdges = graph.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: undefined,
-      animated: newIds.edges.includes(e.id),
-      className: newIds.edges.includes(e.id) ? "cg-edge-new" : "",
-      style: {
-        stroke: e.type === "CAUSED_REJECTION" ? "hsl(0 72% 55%)" : "hsl(214 15% 70%)",
-        strokeWidth: 1.5,
-      },
-      markerEnd: { type: "arrowclosed", color: "hsl(214 15% 65%)" },
-    }));
+    const rfEdges = graph.edges.map((e) => {
+      // The locked /api/graph contract (TASKS.md) uses from/to, not
+      // source/target, and never included an id - synthesized here to
+      // match the exact scheme ui_adapter.py's /api/outcome already uses
+      // for added_edges, so the "just grew" highlight animation matches up.
+      const id = `${e.from}->${e.to}`;
+      const isNew = newIds.edges.includes(id);
+      return {
+        id,
+        source: e.from,
+        target: e.to,
+        label: undefined,
+        animated: isNew,
+        className: isNew ? "cg-edge-new" : "",
+        style: {
+          stroke: e.type === "CAUSED_REJECTION" ? "hsl(0 72% 55%)" : "hsl(214 15% 70%)",
+          strokeWidth: 1.5,
+        },
+        markerEnd: { type: "arrowclosed", color: "hsl(214 15% 65%)" },
+      };
+    });
     return { rfNodes, rfEdges };
   }, [graph, newIds]);
 
