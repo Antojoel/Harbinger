@@ -3,18 +3,22 @@ FastAPI REST API Routes for Harbinger Engine
 ============================================
 Two layers in this file:
 
-1. The LOCKED contract (TASKS.md) — /simulate, /record-outcome, /graph,
-   /patterns, /voice-query, /create-payment-order, /verify-payment. Other
-   consumers (the MCP server) depend on these exact response shapes; /simulate
-   and /record-outcome are extended additively (new fields merged in), never
-   with renamed/removed fields, so nothing else breaks.
+1. The LOCKED contract (TASKS.md) — /simulate, /simulate-from-documents,
+   /record-outcome, /graph, /patterns, /voice-query, /create-payment-order,
+   /verify-payment. Other consumers (the MCP server) depend on these exact
+   response shapes; /simulate and /record-outcome are extended additively
+   (new fields merged in), never with renamed/removed fields, so nothing
+   else breaks.
 2. UI-adapter endpoints for the ported dashboard frontend (apps/web) —
-   /stats, /shipments, /shipments/{id}, /approve-fix, /outcome, /pricing,
-   /payments/*, /voice, /config, /email/*, /integrations. These exist because
-   that frontend expects a shipment catalog the original contract never had.
-   Translation logic lives in ui_adapter.py, not here or in engine.py.
+   /stats, /shipments, /shipments/{id}, /shipments/from-documents,
+   /approve-fix, /outcome, /pricing, /payments/*, /voice, /config,
+   /email/*, /integrations. These exist because that frontend expects a
+   shipment catalog the original contract never had. Translation logic
+   lives in ui_adapter.py, not here or in engine.py.
 """
 
+import base64
+import binascii
 import os
 import time
 import datetime
@@ -30,6 +34,7 @@ logger = logging.getLogger("routes")
 
 from core import engine, shipment_store, user_store
 from api import ui_adapter
+from documents import extraction
 from integrations import razorpay_client, google_auth
 from dataclasses import replace as _dc_replace
 
@@ -49,6 +54,23 @@ class SimulateRequest(BaseModel):
 class RecordOutcomeRequest(BaseModel):
     shipment_id: str = Field(..., description="Shipment tracking number")
     actual_outcome: Dict[str, Any] = Field(..., description="Customs outcome details (passed, hold, fee_amount)")
+
+
+class DocumentUpload(BaseModel):
+    filename: str = "document.pdf"
+    content_base64: str = Field(..., description="Base64-encoded file content (PDF, PNG, or JPEG)")
+    content_type: Optional[str] = Field(None, description="MIME type; guessed from filename if omitted")
+
+
+class SimulateFromDocumentsRequest(BaseModel):
+    shipment_id: str = Field(..., description="Shipment tracking number")
+    country: str = Field(..., description="Destination country code, e.g. 'DE'")
+    commercial_invoice: DocumentUpload
+    packing_list: DocumentUpload
+    bill_of_lading: DocumentUpload
+    certificate_of_origin: Optional[DocumentUpload] = Field(
+        None, description="Omit entirely if no certificate is attached"
+    )
 
 
 class VoiceQueryRequest(BaseModel):
@@ -183,6 +205,89 @@ async def record_outcome_endpoint(payload: RecordOutcomeRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _extract_shipment_documents(
+    commercial_invoice: DocumentUpload,
+    packing_list: DocumentUpload,
+    bill_of_lading: DocumentUpload,
+    certificate_of_origin: Optional[DocumentUpload],
+) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    """Decode + extract all three required documents. Returns
+    (invoice_fields, packing_fields, bol_fields). Raises HTTPException(422)
+    on any decode or extraction failure - a caller-fixable problem (wrong
+    file, unreadable scan), not a 500.
+    """
+    settings = VoiceSettings.from_env()
+    try:
+        invoice_fields = await extraction.extract_document(
+            "commercial_invoice",
+            commercial_invoice.filename,
+            base64.b64decode(commercial_invoice.content_base64, validate=True),
+            commercial_invoice.content_type,
+            settings,
+        )
+        packing_fields = await extraction.extract_document(
+            "packing_list",
+            packing_list.filename,
+            base64.b64decode(packing_list.content_base64, validate=True),
+            packing_list.content_type,
+            settings,
+        )
+        bol_fields = await extraction.extract_document(
+            "bill_of_lading",
+            bill_of_lading.filename,
+            base64.b64decode(bill_of_lading.content_base64, validate=True),
+            bill_of_lading.content_type,
+            settings,
+        )
+    except extraction.ExtractionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except (ValueError, binascii.Error) as e:
+        raise HTTPException(status_code=422, detail=f"invalid base64 document content: {e}")
+    return invoice_fields, packing_fields, bol_fields
+
+
+@router.post(
+    "/simulate-from-documents",
+    summary="Extract fields from uploaded customs documents and simulate (locked contract, additive)",
+)
+async def simulate_from_documents_endpoint(payload: SimulateFromDocumentsRequest):
+    """
+    POST /simulate-from-documents: reads the risk-relevant fields straight out
+    of uploaded customs documents (commercial invoice, packing list, bill of
+    lading - via Vertex AI Gemini's multimodal generateContent, see
+    documents/extraction.py) instead of requiring them pre-typed into
+    structured JSON, then runs the exact same engine /simulate does.
+
+    The bill of lading's hs_code is treated as the shipment's *declared* HS
+    code (matched against the invoice's own hs_code to detect a mismatch,
+    and used for the certificate-requirement lookup); certificate_of_origin
+    needs no extraction at all - only whether one was attached matters.
+
+    Additive to the locked contract: identical response shape to /simulate,
+    plus `extracted_documents` showing what was actually read from each file.
+    """
+    invoice_fields, packing_fields, bol_fields = await _extract_shipment_documents(
+        payload.commercial_invoice, payload.packing_list, payload.bill_of_lading,
+        payload.certificate_of_origin,
+    )
+
+    documents = {
+        "commercial_invoice": {"units": invoice_fields.get("units"), "hs_code": invoice_fields.get("hs_code")},
+        "packing_list": {"units": packing_fields.get("units")},
+        "bill_of_lading": {"hs_code": bol_fields.get("hs_code")},
+        "certificate_of_origin": {"issued": True} if payload.certificate_of_origin else None,
+    }
+
+    try:
+        result = _run_simulation_for_shipment(
+            payload.shipment_id, documents, payload.country, bol_fields.get("hs_code")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    result["extracted_documents"] = documents
+    return result
 
 
 @router.get("/graph", summary="Fetch graph nodes and edges for visualization")
@@ -337,6 +442,80 @@ async def create_shipment_endpoint(payload: CreateShipmentRequest):
     )
     shipment = _ensure_simulated(shipment_store.get_shipment(shipment_id))
     return _dashboard_row(shipment)
+
+
+class CreateShipmentFromDocumentsRequest(BaseModel):
+    shipment_id: Optional[str] = Field(None, description="Auto-generated if omitted")
+    importer_name: str = "Unknown Importer"
+    exporter: str = "Unknown Exporter"
+    country: str = Field(..., description="Destination country code, e.g. 'DE'")
+    goods_desc: str = ""
+    pol: str = ""
+    pod: str = ""
+    commercial_invoice: DocumentUpload
+    packing_list: DocumentUpload
+    bill_of_lading: DocumentUpload
+    certificate_of_origin: Optional[DocumentUpload] = None
+
+
+@router.post(
+    "/shipments/from-documents",
+    summary="Add a shipment from uploaded customs documents and simulate it (UI adapter)",
+)
+async def create_shipment_from_documents_endpoint(payload: CreateShipmentFromDocumentsRequest):
+    """POST /shipments/from-documents: same end result as POST /shipments
+    (a new dashboard shipment, immediately simulated), but sourcing
+    hs_code/units/certificate-presence from uploaded documents via Vertex AI
+    Gemini extraction (documents/extraction.py) instead of typed fields.
+    """
+    shipment_id = payload.shipment_id or f"shp-{uuid.uuid4().hex[:8]}"
+    if shipment_store.get_shipment(shipment_id):
+        raise HTTPException(status_code=409, detail=f"Shipment '{shipment_id}' already exists")
+
+    invoice_fields, packing_fields, bol_fields = await _extract_shipment_documents(
+        payload.commercial_invoice, payload.packing_list, payload.bill_of_lading,
+        payload.certificate_of_origin,
+    )
+
+    hs_code = bol_fields.get("hs_code")
+    invoice_hs_code = invoice_fields.get("hs_code")
+    invoice_units = invoice_fields.get("units")
+    packing_units = packing_fields.get("units")
+    if not hs_code or not invoice_hs_code or invoice_units is None or packing_units is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not extract all required fields from the uploaded documents "
+                f"(bill_of_lading.hs_code={hs_code!r}, commercial_invoice.hs_code="
+                f"{invoice_hs_code!r}, commercial_invoice.units={invoice_units!r}, "
+                f"packing_list.units={packing_units!r}). Try clearer scans, or use "
+                "POST /shipments for manual entry instead."
+            ),
+        )
+
+    shipment_store.add_shipment(
+        shipment_id=shipment_id,
+        importer_name=payload.importer_name,
+        exporter=payload.exporter,
+        hs_code=hs_code,
+        country=payload.country,
+        goods_desc=payload.goods_desc,
+        pol=payload.pol,
+        pod=payload.pod,
+        invoice_units=invoice_units,
+        packing_units=packing_units,
+        invoice_hs_code=invoice_hs_code,
+        has_certificate=payload.certificate_of_origin is not None,
+    )
+    shipment = _ensure_simulated(shipment_store.get_shipment(shipment_id))
+    row = _dashboard_row(shipment)
+    row["extracted_documents"] = {
+        "commercial_invoice": invoice_fields,
+        "packing_list": packing_fields,
+        "bill_of_lading": bol_fields,
+        "has_certificate": payload.certificate_of_origin is not None,
+    }
+    return row
 
 
 @router.get("/shipments", summary="List shipments for the dashboard (UI adapter)")

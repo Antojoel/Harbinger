@@ -56,6 +56,25 @@ the other two, not just push it silently.
 { "patterns": [ { "pattern_id": "PAT-001", "type": "unit_mismatch", "frequency": 14, "confidence": 0.91 } ] }
 ```
 
+### `POST /api/simulate-from-documents`  *(added later — extracts fields from real uploaded documents instead of requiring pre-typed JSON; MCP tool `check_shipment_risk_from_documents` wraps this)*
+```json
+// Request — each document is base64-encoded file content (PDF/PNG/JPEG); certificate_of_origin is omitted entirely if none exists
+{ "shipment_id": "MSKU1234567", "country": "DE",
+  "commercial_invoice": {"filename": "invoice.pdf", "content_base64": "..."},
+  "packing_list": {"filename": "packing.pdf", "content_base64": "..."},
+  "bill_of_lading": {"filename": "bol.pdf", "content_base64": "..."} }
+// Response — identical shape to /simulate, plus what was actually read off each file
+{ "shipment_id": "MSKU1234567", "risk_score": 0.62, "reasons": [...], "matched_patterns": ["PAT-014"],
+  "extracted_documents": { "commercial_invoice": {"units": 250, "hs_code": "8471.30"},
+    "packing_list": {"units": 250}, "bill_of_lading": {"hs_code": "8471.30"},
+    "certificate_of_origin": null } }
+```
+The bill of lading's `hs_code` is treated as the shipment's *declared* HS code (checked
+against the invoice's own `hs_code` for a mismatch, same as `detect_hs_code_mismatch`
+already does) — see `services/engine/app/documents/extraction.py` for exactly which
+fields get extracted from which document and why (it's only 4 values total, not full
+document understanding).
+
 ### `POST /api/voice-query`  *(needed for Harish's VoiceWidget — not in the original plan, added now)*
 ```json
 // Request

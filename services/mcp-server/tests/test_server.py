@@ -93,6 +93,62 @@ class TestCheckShipmentRisk:
 
 
 @pytest.mark.unit
+class TestCheckShipmentRiskFromDocuments:
+    async def test_posts_documents_as_base64_with_defaults(self, engine, captured_requests):
+        engine.response = {
+            "shipment_id": "MSKU1",
+            "risk_score": 0.0,
+            "extracted_documents": {},
+        }
+
+        result = await server.check_shipment_risk_from_documents(
+            "MSKU1",
+            "DE",
+            commercial_invoice_base64="aW52b2ljZQ==",
+            packing_list_base64="cGFja2luZw==",
+            bill_of_lading_base64="Ym9s",
+        )
+
+        assert result["risk_score"] == 0.0
+        sent = captured_requests[-1]
+        assert sent["method"] == "POST"
+        assert sent["path"] == "/api/simulate-from-documents"
+        assert sent["json"] == {
+            "shipment_id": "MSKU1",
+            "country": "DE",
+            "commercial_invoice": {"filename": "invoice.pdf", "content_base64": "aW52b2ljZQ=="},
+            "packing_list": {"filename": "packing_list.pdf", "content_base64": "cGFja2luZw=="},
+            "bill_of_lading": {"filename": "bill_of_lading.pdf", "content_base64": "Ym9s"},
+        }
+
+    async def test_includes_certificate_when_provided(self, engine, captured_requests):
+        engine.response = {"shipment_id": "MSKU1", "risk_score": 0.0}
+
+        await server.check_shipment_risk_from_documents(
+            "MSKU1",
+            "DE",
+            commercial_invoice_base64="aQ==",
+            packing_list_base64="cA==",
+            bill_of_lading_base64="Yg==",
+            certificate_of_origin_base64="Yw==",
+            certificate_of_origin_filename="coo.pdf",
+        )
+
+        sent = captured_requests[-1]["json"]
+        assert sent["certificate_of_origin"] == {"filename": "coo.pdf", "content_base64": "Yw=="}
+
+    async def test_omits_certificate_when_not_provided(self, engine, captured_requests):
+        engine.response = {"shipment_id": "MSKU1", "risk_score": 0.0}
+
+        await server.check_shipment_risk_from_documents(
+            "MSKU1", "DE",
+            commercial_invoice_base64="aQ==", packing_list_base64="cA==", bill_of_lading_base64="Yg==",
+        )
+
+        assert "certificate_of_origin" not in captured_requests[-1]["json"]
+
+
+@pytest.mark.unit
 class TestRecordOutcomeTool:
     async def test_assembles_actual_outcome(self, engine, captured_requests):
         engine.response = {"status": "recorded", "pattern_updated": True}
@@ -171,6 +227,7 @@ class TestToolRegistration:
         names = {t.name for t in tools}
         assert names == {
             "check_shipment_risk",
+            "check_shipment_risk_from_documents",
             "record_outcome_tool",
             "query_patterns_tool",
         }

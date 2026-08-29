@@ -25,6 +25,8 @@ export const api = {
   shipments: (params = {}) => client.get("/shipments", { params }).then((r) => r.data),
   shipment: (id) => client.get(`/shipments/${id}`).then((r) => r.data),
   createShipment: (payload) => client.post("/shipments", payload).then((r) => r.data),
+  createShipmentFromDocuments: (payload) =>
+    client.post("/shipments/from-documents", payload).then((r) => r.data),
   simulate: (shipment_id) => client.post("/simulate", { shipment_id }).then((r) => r.data),
   approveFix: (shipment_id, fix_id) =>
     client.post("/approve-fix", { shipment_id, fix_id }).then((r) => r.data),

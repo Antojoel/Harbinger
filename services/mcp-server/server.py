@@ -7,9 +7,10 @@ graph directly.
 
 Each tool is a thin proxy over the engine's REST API (``services/engine``):
 
-    check_shipment_risk   -> POST /api/simulate
-    record_outcome_tool   -> POST /api/record-outcome
-    query_patterns_tool   -> GET  /api/patterns
+    check_shipment_risk               -> POST /api/simulate
+    check_shipment_risk_from_documents -> POST /api/simulate-from-documents
+    record_outcome_tool               -> POST /api/record-outcome
+    query_patterns_tool               -> GET  /api/patterns
 
 Transport is selected by ``MCP_TRANSPORT`` (``stdio`` for a local Claude
 Desktop / Claude Code config, ``streamable-http`` / ``sse`` for a networked
@@ -107,6 +108,72 @@ async def check_shipment_risk(
     if country:
         payload["country"] = country
     return await _engine_request("POST", "/api/simulate", json=payload)
+
+
+@mcp.tool()
+async def check_shipment_risk_from_documents(
+    shipment_id: str,
+    country: str,
+    commercial_invoice_base64: str,
+    packing_list_base64: str,
+    bill_of_lading_base64: str,
+    commercial_invoice_filename: str = "invoice.pdf",
+    packing_list_filename: str = "packing_list.pdf",
+    bill_of_lading_filename: str = "bill_of_lading.pdf",
+    certificate_of_origin_base64: str | None = None,
+    certificate_of_origin_filename: str = "certificate_of_origin.pdf",
+) -> dict[str, Any]:
+    """Predict customs hold risk by reading it straight off real documents.
+
+    Same result as check_shipment_risk, but the engine extracts hs_code and
+    unit counts itself (via Vertex AI Gemini) instead of the caller having
+    to already know them - hand it the actual commercial invoice, packing
+    list, and bill of lading (as base64-encoded PDF/PNG/JPEG file content)
+    and it reads the risk-relevant fields out of them directly. The bill of
+    lading's HS code is treated as the shipment's declared HS code (checked
+    against the invoice's own HS code for a mismatch); a certificate of
+    origin needs no extraction at all - only whether one was provided
+    matters, so omit certificate_of_origin_base64 entirely if none exists.
+
+    Args:
+        shipment_id: Container / shipment tracking number, e.g. "MSKU1234567".
+        country: Destination country code, e.g. "DE".
+        commercial_invoice_base64: Base64-encoded commercial invoice file.
+        packing_list_base64: Base64-encoded packing list file.
+        bill_of_lading_base64: Base64-encoded bill of lading file.
+        commercial_invoice_filename: Original filename (helps MIME-type detection).
+        packing_list_filename: Original filename (helps MIME-type detection).
+        bill_of_lading_filename: Original filename (helps MIME-type detection).
+        certificate_of_origin_base64: Base64-encoded certificate of origin,
+            if one exists. Omit if the shipment has no certificate attached.
+        certificate_of_origin_filename: Original filename, if provided.
+
+    Returns:
+        Same shape as check_shipment_risk, plus "extracted_documents"
+        showing the fields actually read from each file.
+    """
+    payload: dict[str, Any] = {
+        "shipment_id": shipment_id,
+        "country": country,
+        "commercial_invoice": {
+            "filename": commercial_invoice_filename,
+            "content_base64": commercial_invoice_base64,
+        },
+        "packing_list": {
+            "filename": packing_list_filename,
+            "content_base64": packing_list_base64,
+        },
+        "bill_of_lading": {
+            "filename": bill_of_lading_filename,
+            "content_base64": bill_of_lading_base64,
+        },
+    }
+    if certificate_of_origin_base64:
+        payload["certificate_of_origin"] = {
+            "filename": certificate_of_origin_filename,
+            "content_base64": certificate_of_origin_base64,
+        }
+    return await _engine_request("POST", "/api/simulate-from-documents", json=payload)
 
 
 @mcp.tool()
