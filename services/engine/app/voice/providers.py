@@ -263,6 +263,115 @@ def _first_inline_data(data: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# vertex
+# ---------------------------------------------------------------------------
+
+
+class VertexProvider:
+    """Vertex AI: Gemini ``generateContent`` for transcription (service-account
+    auth, not an API key), Cloud Text-to-Speech for synthesis.
+
+    TTS deliberately does NOT use generateContent's native-audio output —
+    that's a newer capability with narrower region/preview availability.
+    Cloud Text-to-Speech is a separate, long-GA product that's a much safer
+    bet for something that has to work reliably in a live demo.
+
+    Mints and caches a short-lived OAuth2 access token from the service
+    account (scope: cloud-platform), refreshing it when it expires -
+    google-auth's Credentials object tracks its own expiry.
+    """
+
+    name = "vertex"
+
+    def __init__(self, settings: VoiceSettings) -> None:
+        if not settings.vertex_service_account_json_b64:
+            raise VoiceProviderError("GOOGLE_SERVICE_ACCOUNT_JSON_B64 is not set")
+        if not settings.vertex_project_id:
+            raise VoiceProviderError("VERTEX_PROJECT_ID is not set")
+        self._settings = settings
+        try:
+            import base64 as _b64
+            import json as _json
+
+            from google.oauth2 import service_account
+
+            info = _json.loads(
+                _b64.b64decode(settings.vertex_service_account_json_b64)
+            )
+            self._credentials = service_account.Credentials.from_service_account_info(
+                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        except Exception as exc:
+            raise VoiceProviderError(f"invalid service account credentials: {exc}") from exc
+
+    def _access_token(self) -> str:
+        from google.auth.transport.requests import Request
+
+        if not self._credentials.valid:
+            self._credentials.refresh(Request())
+        return self._credentials.token
+
+    async def transcribe(self, audio: bytes, mime: str) -> str:
+        if not audio:
+            return ""
+        path = (
+            f"/v1/projects/{self._settings.vertex_project_id}/locations/"
+            f"{self._settings.vertex_location}/publishers/google/models/"
+            f"{self._settings.vertex_stt_model}:generateContent"
+        )
+        payload = {
+            "contents": [
+                {
+                    # Vertex AI requires an explicit role - unlike the public
+                    # Generative Language API, it does not default this.
+                    "role": "user",
+                    "parts": [
+                        {"text": "Transcribe this audio verbatim. Reply with the transcript only."},
+                        {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode("ascii")}},
+                    ]
+                }
+            ]
+        }
+        try:
+            async with build_client(
+                base_url=f"https://{self._settings.vertex_location}-aiplatform.googleapis.com",
+                headers={"Authorization": f"Bearer {self._access_token()}"},
+                timeout=self._settings.request_timeout,
+            ) as client:
+                response = await client.post(path, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise VoiceProviderError(f"Vertex AI transcription failed: {exc}") from exc
+        return _first_text_part(response.json()).strip()
+
+    async def synthesize(self, text: str) -> Audio:
+        if not text:
+            return EMPTY_AUDIO
+        try:
+            async with build_client(
+                base_url="https://texttospeech.googleapis.com",
+                headers={"Authorization": f"Bearer {self._access_token()}"},
+                timeout=self._settings.request_timeout,
+            ) as client:
+                response = await client.post(
+                    "/v1/text:synthesize",
+                    json={
+                        "input": {"text": text},
+                        "voice": {"languageCode": "en-US", "name": self._settings.vertex_tts_voice},
+                        "audioConfig": {"audioEncoding": "LINEAR16"},
+                    },
+                )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise VoiceProviderError(f"Cloud Text-to-Speech failed: {exc}") from exc
+        audio_b64 = response.json().get("audioContent", "")
+        if not audio_b64:
+            return EMPTY_AUDIO
+        # LINEAR16 encoding from Cloud TTS already includes a WAV header.
+        return Audio(base64.b64decode(audio_b64), "audio/wav")
+
+
+# ---------------------------------------------------------------------------
 # local
 # ---------------------------------------------------------------------------
 
@@ -314,6 +423,7 @@ _PROVIDERS: dict[str, type] = {
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,
     "local": LocalProvider,
+    "vertex": VertexProvider,
 }
 
 

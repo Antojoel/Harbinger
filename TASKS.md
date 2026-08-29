@@ -256,6 +256,22 @@ hard dependency between people — everything else is parallel.
       voice-local`. GPU users: uncomment the `deploy.resources.reservations`
       block per service and set `TORCH_INDEX_URL` for `tts`.)*
 
+**🚩 Flag for Vignesh — added a 5th provider (`vertex`), touches your files:**
+Added to `voice/providers.py` / `voice/config.py` / `tests/test_voice_providers.py`
+as a new, additive `VertexProvider` — Vertex AI Gemini (service-account auth,
+not an API key) for STT, Cloud Text-to-Speech (not generateContent's
+native-audio output — narrower region/preview availability, not worth the
+demo risk) for synthesis. Mints and caches its own OAuth2 access token from
+the service account (`google-auth`, already a dependency). One real gotcha
+worth knowing if you touch this: **Vertex AI requires an explicit
+`"role": "user"` on each `contents` entry** — the public Generative Language
+API defaults this, Vertex doesn't, and it fails with a confusing 400 if you
+forget it (cost me a debugging pass). Verified live against a real Vertex AI
+project: `gemini-2.5-flash` in `us-central1`, full TTS → WAV → STT round-trip
+recovered the sentence correctly. All 8 new unit tests use a throwaway
+generated RSA key (see `_fake_service_account_b64()`), no real credential
+touches the test suite. 92/92 engine tests pass.
+
 **🚩 Flag for Vignesh (found while adding a Neo4j data volume, not fixed here):**
 `GraphClient`'s driver doesn't auto-reconnect if Neo4j restarts while the
 engine stays up — `execute_read`/`execute_write` catch `ServiceUnavailable`

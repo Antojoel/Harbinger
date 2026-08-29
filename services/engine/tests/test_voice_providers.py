@@ -14,10 +14,40 @@ from voice.providers import (
     LocalProvider,
     OpenAIProvider,
     TextOnlyProvider,
+    VertexProvider,
     VoiceProviderError,
     get_provider,
     pcm_to_wav,
 )
+
+
+def _fake_service_account_b64() -> str:
+    """A syntactically valid but entirely throwaway service-account JSON -
+    real RSA key so Credentials.from_service_account_info's parsing
+    succeeds, but disconnected from any real Google project or secret."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("ascii")
+    info = {
+        "type": "service_account",
+        "project_id": "test-project",
+        "private_key_id": "test-key-id",
+        "private_key": pem,
+        "client_email": "test@test-project.iam.gserviceaccount.com",
+        "client_id": "000000000000000000000",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40test-project.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com",
+    }
+    return base64.b64encode(json.dumps(info).encode()).decode("ascii")
 
 
 def _mock_transport(monkeypatch, handler):
@@ -183,6 +213,115 @@ class TestLocalProvider:
 
 
 @pytest.mark.unit
+class TestVertexProvider:
+    """Verified against real Vertex AI + Cloud Text-to-Speech during
+    development (TTS -> WAV -> STT round-trip recovered the sentence
+    correctly, model gemini-2.5-flash / us-central1); these tests mock the
+    transport so the suite doesn't depend on live credentials."""
+
+    def _settings(self, **overrides):
+        env = {
+            "VOICE_PROVIDER": "vertex",
+            "GOOGLE_SERVICE_ACCOUNT_JSON_B64": _fake_service_account_b64(),
+            "VERTEX_PROJECT_ID": "test-project",
+        }
+        env.update(overrides)
+        return VoiceSettings.from_env(env)
+
+    def test_requires_service_account_json(self):
+        with pytest.raises(VoiceProviderError):
+            VertexProvider(VoiceSettings.from_env({"VERTEX_PROJECT_ID": "p"}))
+
+    def test_requires_project_id(self):
+        with pytest.raises(VoiceProviderError):
+            VertexProvider(
+                VoiceSettings.from_env(
+                    {"GOOGLE_SERVICE_ACCOUNT_JSON_B64": _fake_service_account_b64()}
+                )
+            )
+
+    def test_rejects_malformed_credentials(self):
+        with pytest.raises(VoiceProviderError):
+            VertexProvider(
+                VoiceSettings.from_env(
+                    {
+                        "GOOGLE_SERVICE_ACCOUNT_JSON_B64": base64.b64encode(
+                            b"not json"
+                        ).decode(),
+                        "VERTEX_PROJECT_ID": "p",
+                    }
+                )
+            )
+
+    async def test_transcribe_reads_first_text_part_with_required_role(
+        self, monkeypatch
+    ):
+        provider = VertexProvider(self._settings())
+        monkeypatch.setattr(provider, "_access_token", lambda: "fake-token")
+
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["url"] = str(request.url)
+            seen["auth"] = request.headers.get("authorization")
+            seen["role"] = json.loads(request.content)["contents"][0]["role"]
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {"content": {"parts": [{"text": "high risk shipment"}]}}
+                    ]
+                },
+            )
+
+        _mock_transport(monkeypatch, handler)
+        result = await provider.transcribe(b"RIFFfake", "audio/wav")
+
+        assert result == "high risk shipment"
+        assert seen["auth"] == "Bearer fake-token"
+        # Vertex AI requires this explicitly - the public Generative
+        # Language API defaults it, which is what broke this the first time.
+        assert seen["role"] == "user"
+        assert "test-project" in seen["url"]
+        assert "generateContent" in seen["url"]
+
+    async def test_transcribe_empty_audio_skips_call(self, monkeypatch):
+        provider = VertexProvider(self._settings())
+        monkeypatch.setattr(provider, "_access_token", lambda: "fake-token")
+        _mock_transport(monkeypatch, lambda r: httpx.Response(500))
+        assert await provider.transcribe(b"", "audio/wav") == ""
+
+    async def test_synthesize_returns_wav_audio_via_cloud_tts(self, monkeypatch):
+        provider = VertexProvider(self._settings())
+        monkeypatch.setattr(provider, "_access_token", lambda: "fake-token")
+
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["url"] = str(request.url)
+            seen["voice"] = json.loads(request.content)["voice"]["name"]
+            return httpx.Response(
+                200,
+                json={"audioContent": base64.b64encode(b"RIFFwavdata").decode()},
+            )
+
+        _mock_transport(monkeypatch, handler)
+        audio = await provider.synthesize("held, missing cert")
+
+        assert audio.data == b"RIFFwavdata"
+        assert audio.mime == "audio/wav"
+        # TTS deliberately goes through Cloud Text-to-Speech, not
+        # generateContent's native-audio output (narrower availability).
+        assert "texttospeech.googleapis.com" in seen["url"]
+
+    async def test_synthesize_empty_text_skips_call(self, monkeypatch):
+        provider = VertexProvider(self._settings())
+        monkeypatch.setattr(provider, "_access_token", lambda: "fake-token")
+        _mock_transport(monkeypatch, lambda r: httpx.Response(500))
+        assert (await provider.synthesize("")).is_empty
+
+
+@pytest.mark.unit
 class TestGetProvider:
     def test_text_only(self):
         assert isinstance(
@@ -198,6 +337,22 @@ class TestGetProvider:
 
     def test_falls_back_to_text_only_on_missing_key(self):
         provider = get_provider(VoiceSettings.from_env({"VOICE_PROVIDER": "openai"}))
+        assert isinstance(provider, TextOnlyProvider)
+
+    def test_vertex_selected(self):
+        provider = get_provider(
+            VoiceSettings.from_env(
+                {
+                    "VOICE_PROVIDER": "vertex",
+                    "GOOGLE_SERVICE_ACCOUNT_JSON_B64": _fake_service_account_b64(),
+                    "VERTEX_PROJECT_ID": "p",
+                }
+            )
+        )
+        assert isinstance(provider, VertexProvider)
+
+    def test_vertex_falls_back_to_text_only_on_missing_config(self):
+        provider = get_provider(VoiceSettings.from_env({"VOICE_PROVIDER": "vertex"}))
         assert isinstance(provider, TextOnlyProvider)
 
 

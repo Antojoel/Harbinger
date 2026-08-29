@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-VALID_PROVIDERS = ("text_only", "openai", "gemini", "local")
+VALID_PROVIDERS = ("text_only", "openai", "gemini", "local", "vertex")
 
 DEFAULT_PROVIDER = "text_only"
 
@@ -35,6 +35,17 @@ class VoiceSettings:
     stt_url: str = "http://stt:8100"
     tts_url: str = "http://tts:8200"
 
+    # Vertex AI (service-account auth, not an API key). STT via Gemini
+    # generateContent (standard multimodal, long-GA); TTS via the separate
+    # Cloud Text-to-Speech API rather than generateContent's native-audio
+    # output, since that's a newer capability with narrower region/preview
+    # availability - not something to gamble a live demo on.
+    vertex_service_account_json_b64: str = ""
+    vertex_project_id: str = ""
+    vertex_location: str = "us-central1"
+    vertex_stt_model: str = "gemini-2.5-flash"
+    vertex_tts_voice: str = "en-US-Neural2-C"
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> VoiceSettings:
         source = env if env is not None else os.environ
@@ -63,6 +74,13 @@ class VoiceSettings:
             gemini_tts_voice=source.get("GEMINI_TTS_VOICE", "Kore"),
             stt_url=source.get("STT_URL", "http://stt:8100").rstrip("/"),
             tts_url=source.get("TTS_URL", "http://tts:8200").rstrip("/"),
+            vertex_service_account_json_b64=source.get(
+                "GOOGLE_SERVICE_ACCOUNT_JSON_B64", ""
+            ),
+            vertex_project_id=source.get("VERTEX_PROJECT_ID", ""),
+            vertex_location=source.get("VERTEX_LOCATION", "us-central1"),
+            vertex_stt_model=source.get("VERTEX_STT_MODEL", "gemini-2.5-flash"),
+            vertex_tts_voice=source.get("VERTEX_TTS_VOICE", "en-US-Neural2-C"),
         )
 
 
