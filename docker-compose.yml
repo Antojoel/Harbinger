@@ -26,6 +26,12 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    volumes:
+      # Persists user_store.py's login/onboarding-seen state across
+      # container restarts/rebuilds - without this, every rebuild wiped
+      # it, logging everyone out and re-showing onboarding to existing
+      # accounts (it's a plain in-memory dict otherwise, not a database).
+      - engine_data:/data
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
@@ -147,3 +153,4 @@ services:
 volumes:
   neo4j_data:
   tts-models:
+  engine_data:
