@@ -272,6 +272,32 @@ recovered the sentence correctly. All 8 new unit tests use a throwaway
 generated RSA key (see `_fake_service_account_b64()`), no real credential
 touches the test suite. 92/92 engine tests pass.
 
+**🚩 Flag for Vignesh — added LLM-worded answers, touches your files:**
+`voice/answer.py` split into `fetch_shipment_facts()` (graph read) and
+`format_heuristic_answer()` (the template you wrote) — `build_spoken_answer()`
+is unchanged in behavior, just composed from the two now, so this is
+additive: 92/92 pre-existing tests still pass untouched. New
+`voice/llm_answer.py` + `VoiceSettings.llm_answer_provider`
+(`heuristic`/`openai`/`gemini`, request-overridable via `llm_provider`) lets
+`response_text` come from an LLM grounded in the same facts, instead of the
+fixed template — falls back to your template on any LLM failure, so nothing
+about the existing behavior changes unless `LLM_ANSWER_PROVIDER` is set.
+One gotcha if you touch this: our OpenAI key only has `gpt-5-nano` access
+(you already found this — see the A7→V5 changelog note), which is a
+*reasoning* model — rejects `max_tokens`/non-default `temperature`, needs
+`max_completion_tokens` and a generous budget (hidden reasoning tokens eat
+most of it). `gemini` deliberately reuses your Vertex service-account
+credential (new `vertex_access_token()` in `providers.py`, shared with
+`VertexProvider`) instead of a separate `GEMINI_API_KEY` — same GCP
+credential, no second key to configure. Also caught live: the facts JSON
+handed to the LLM originally included `pattern_id`/raw decimal `confidence`,
+and a real answer read `PAT-001, confidence 0.82` verbatim — bad for
+something spoken by TTS. Fixed by pre-sanitizing the facts (percent, no
+IDs) before they reach the model, not just telling it not to in the prompt.
+Verified live against real accounts: both OpenAI and Vertex-Gemini came back
+correctly grounded and free of internal IDs; either degrades cleanly to the
+heuristic template if its credential is missing. 13 new tests, 105/105 total.
+
 **🚩 Flag for Vignesh (found while adding a Neo4j data volume, not fixed here):**
 `GraphClient`'s driver doesn't auto-reconnect if Neo4j restarts while the
 engine stays up — `execute_read`/`execute_write` catch `ServiceUnavailable`

@@ -39,6 +39,10 @@ export const api = {
   emailLog: () => client.get("/email/log").then((r) => r.data),
   sendEmail: (payload) => client.post("/email/send", payload).then((r) => r.data),
   integrations: () => client.get("/integrations").then((r) => r.data),
+  voiceQuery: (shipment_id, audio_base64, provider, llm_provider) =>
+    client
+      .post("/voice-query", { shipment_id, audio_base64, provider, llm_provider })
+      .then((r) => r.data),
 
   googleLogin: (id_token) => client.post("/auth/google", { id_token }).then((r) => r.data),
   guestLogin: () => client.post("/auth/guest").then((r) => r.data),

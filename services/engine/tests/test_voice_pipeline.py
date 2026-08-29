@@ -105,3 +105,76 @@ class TestAnswerVoiceQuery:
         )
 
         assert result["response_audio_base64"] == ""
+
+
+@pytest.mark.unit
+class TestAnswerEngineSelection:
+    """settings.llm_answer_provider picks response_text wording, independent
+    of the speech provider (which FakeProvider stands in for here)."""
+
+    async def test_heuristic_is_the_default_and_ignores_llm_machinery(
+        self, monkeypatch, patch_pipeline
+    ):
+        provider = FakeProvider(transcript="why is this flagged?")
+        patch_pipeline(provider, answer="heuristic sentence")
+
+        async def boom(*a, **kw):
+            raise AssertionError("build_llm_answer should not be called for heuristic")
+
+        monkeypatch.setattr(pipeline_module, "build_llm_answer", boom)
+
+        result = await pipeline_module.answer_voice_query(
+            "MSKU1", base64.b64encode(b"x").decode(), settings=VoiceSettings()
+        )
+
+        assert result["response_text"] == "heuristic sentence"
+
+    async def test_llm_provider_used_when_configured(self, monkeypatch, patch_pipeline):
+        provider = FakeProvider(transcript="why is this flagged?")
+        patch_pipeline(provider)
+        monkeypatch.setattr(
+            pipeline_module, "fetch_shipment_facts", lambda _sid: {"exists": True}
+        )
+
+        async def fake_llm(shipment_id, transcript, facts, settings):
+            assert shipment_id == "MSKU1"
+            assert transcript == "why is this flagged?"
+            assert facts == {"exists": True}
+            return "llm-worded answer"
+
+        monkeypatch.setattr(pipeline_module, "build_llm_answer", fake_llm)
+
+        result = await pipeline_module.answer_voice_query(
+            "MSKU1",
+            base64.b64encode(b"x").decode(),
+            settings=VoiceSettings(llm_answer_provider="openai"),
+        )
+
+        assert result["response_text"] == "llm-worded answer"
+
+    async def test_llm_failure_falls_back_to_heuristic_template(
+        self, monkeypatch, patch_pipeline
+    ):
+        provider = FakeProvider(transcript="why?")
+        patch_pipeline(provider)
+        monkeypatch.setattr(
+            pipeline_module, "fetch_shipment_facts", lambda _sid: {"exists": False}
+        )
+
+        async def fake_llm(*a, **kw):
+            raise VoiceProviderError("no key")
+
+        monkeypatch.setattr(pipeline_module, "build_llm_answer", fake_llm)
+        monkeypatch.setattr(
+            pipeline_module,
+            "format_heuristic_answer",
+            lambda sid, facts: f"heuristic fallback for {sid}",
+        )
+
+        result = await pipeline_module.answer_voice_query(
+            "MSKU1",
+            base64.b64encode(b"x").decode(),
+            settings=VoiceSettings(llm_answer_provider="gemini"),
+        )
+
+        assert result["response_text"] == "heuristic fallback for MSKU1"

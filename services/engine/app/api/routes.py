@@ -22,7 +22,10 @@ from typing import Dict, Any, List, Optional
 from core import engine, shipment_store, user_store
 from api import ui_adapter
 from integrations import razorpay_client, google_auth
+from dataclasses import replace as _dc_replace
+
 from voice import answer_voice_query
+from voice.config import VALID_LLM_ANSWER_PROVIDERS, VALID_PROVIDERS, VoiceSettings
 
 router = APIRouter()
 
@@ -42,6 +45,13 @@ class RecordOutcomeRequest(BaseModel):
 class VoiceQueryRequest(BaseModel):
     shipment_id: str = Field(..., description="Shipment tracking number")
     audio_base64: str = Field(..., description="Recorded driver/officer audio, base64-encoded")
+    provider: Optional[str] = Field(
+        None, description="Override VOICE_PROVIDER for this call: text_only | openai | gemini | vertex | local"
+    )
+    llm_provider: Optional[str] = Field(
+        None,
+        description="Override LLM_ANSWER_PROVIDER for this call: heuristic (default template) | openai | gemini",
+    )
 
 
 class CreatePaymentOrderRequest(BaseModel):
@@ -181,11 +191,29 @@ async def voice_query_endpoint(payload: VoiceQueryRequest):
     POST /voice-query: transcribes the audio, answers the shipment's hold risk
     from the immune-memory graph, and speaks the answer back. The speech
     backend is selected by the ``VOICE_PROVIDER`` env var
-    (``text_only`` | ``openai`` | ``gemini`` | ``local``); see
+    (``text_only`` | ``openai`` | ``gemini`` | ``vertex`` | ``local``), or
+    overridden per-request via ``payload.provider``; see
     ``services/engine/app/voice/``.
     """
+    settings = VoiceSettings.from_env()
+    if payload.provider:
+        requested = payload.provider.strip().lower()
+        if requested not in VALID_PROVIDERS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"provider must be one of {VALID_PROVIDERS}, got '{payload.provider}'",
+            )
+        settings = _dc_replace(settings, provider=requested)
+    if payload.llm_provider:
+        requested_llm = payload.llm_provider.strip().lower()
+        if requested_llm not in VALID_LLM_ANSWER_PROVIDERS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"llm_provider must be one of {VALID_LLM_ANSWER_PROVIDERS}, got '{payload.llm_provider}'",
+            )
+        settings = _dc_replace(settings, llm_answer_provider=requested_llm)
     try:
-        return await answer_voice_query(payload.shipment_id, payload.audio_base64)
+        return await answer_voice_query(payload.shipment_id, payload.audio_base64, settings=settings)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -483,10 +511,18 @@ async def send_email_endpoint(payload: SendEmailRequest):
 async def integrations_endpoint():
     return {
         "rest_endpoints": [
-            {"method": "POST", "path": "/api/simulate"},
-            {"method": "POST", "path": "/api/record-outcome"},
-            {"method": "GET", "path": "/api/graph"},
-            {"method": "GET", "path": "/api/patterns"},
+            {"method": "POST", "path": "/api/simulate", "desc": "Predict hold risk for a shipment before it ships"},
+            {"method": "POST", "path": "/api/record-outcome", "desc": "Record what customs actually decided, growing the immune-memory graph"},
+            {"method": "GET", "path": "/api/graph", "desc": "Read the current pattern graph"},
+            {"method": "GET", "path": "/api/patterns", "desc": "Query learned hold patterns by HS code / country"},
+            {"method": "POST", "path": "/api/voice-query", "desc": "Ask a shipment's hold risk by voice (STT -> graph -> TTS)"},
         ],
-        "mcp_tools": ["check_shipment_risk", "record_outcome_tool", "query_patterns_tool"],
+        "mcp_tools": [
+            {"name": "check_shipment_risk", "desc": "MCP tool wrapping /api/simulate"},
+            {"name": "record_outcome_tool", "desc": "MCP tool wrapping /api/record-outcome"},
+            {"name": "query_patterns_tool", "desc": "MCP tool wrapping /api/patterns"},
+        ],
+        "voice_providers": list(VALID_PROVIDERS),
+        "llm_answer_providers": list(VALID_LLM_ANSWER_PROVIDERS),
+        "note": "REST and MCP are two views of the same locked contract - see TASKS.md.",
     }

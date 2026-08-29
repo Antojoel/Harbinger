@@ -35,10 +35,18 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
       # Voice pipeline (POST /api/voice-query). One of:
-      #   text_only (default, no speech infra) | openai | gemini | local
+      #   text_only (default, no speech infra) | openai | gemini | vertex | local
       - VOICE_PROVIDER=${VOICE_PROVIDER:-text_only}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GOOGLE_SERVICE_ACCOUNT_JSON_B64=${GOOGLE_SERVICE_ACCOUNT_JSON_B64:-}
+      - VERTEX_PROJECT_ID=${VERTEX_PROJECT_ID:-}
+      - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
+      - VERTEX_STT_MODEL=${VERTEX_STT_MODEL:-gemini-2.5-flash}
+      - VERTEX_TTS_VOICE=${VERTEX_TTS_VOICE:-en-US-Neural2-C}
+      # Answer wording (response_text): heuristic (default, no LLM) | openai | gemini
+      - LLM_ANSWER_PROVIDER=${LLM_ANSWER_PROVIDER:-heuristic}
+      - LLM_ANSWER_MODEL=${LLM_ANSWER_MODEL:-}
       - STT_URL=http://stt:8100
       - TTS_URL=http://tts:8200
     depends_on:

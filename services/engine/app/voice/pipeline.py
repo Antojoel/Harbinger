@@ -6,8 +6,9 @@ import base64
 import binascii
 import logging
 
-from voice.answer import build_spoken_answer
+from voice.answer import build_spoken_answer, fetch_shipment_facts, format_heuristic_answer
 from voice.config import VoiceSettings
+from voice.llm_answer import build_llm_answer
 from voice.providers import VoiceProviderError, get_provider
 
 logger = logging.getLogger("harbinger.voice")
@@ -50,7 +51,7 @@ async def answer_voice_query(
     except VoiceProviderError as exc:
         logger.error("transcription failed (%s): %s", provider.name, exc)
 
-    response_text = build_spoken_answer(shipment_id, transcript)
+    response_text = await _build_answer(shipment_id, transcript, settings)
 
     response_audio_base64 = ""
     try:
@@ -65,3 +66,33 @@ async def answer_voice_query(
         "response_text": response_text,
         "response_audio_base64": response_audio_base64,
     }
+
+
+async def _build_answer(shipment_id: str, transcript: str, settings: VoiceSettings) -> str:
+    """Word the answer: the heuristic template, or an LLM grounded in the same
+    graph facts. An LLM failure (missing key, network error, ...) falls back
+    to the heuristic template rather than breaking the query.
+    """
+    shipment_id = (shipment_id or "").strip()
+    if not shipment_id:
+        return "I need a shipment number to check the hold risk."
+
+    if settings.llm_answer_provider == "heuristic":
+        return build_spoken_answer(shipment_id, transcript)
+
+    logger.info(
+        "voice answer for %s via %s (asked: %r)",
+        shipment_id,
+        settings.llm_answer_provider,
+        transcript[:120],
+    )
+    facts = fetch_shipment_facts(shipment_id)
+    try:
+        return await build_llm_answer(shipment_id, transcript, facts, settings)
+    except VoiceProviderError as exc:
+        logger.warning(
+            "LLM answer (%s) failed, falling back to heuristic: %s",
+            settings.llm_answer_provider,
+            exc,
+        )
+        return format_heuristic_answer(shipment_id, facts)

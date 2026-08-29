@@ -9,6 +9,14 @@ VALID_PROVIDERS = ("text_only", "openai", "gemini", "local", "vertex")
 
 DEFAULT_PROVIDER = "text_only"
 
+# Answer generation is a separate axis from the speech provider above: this
+# picks how response_text is worded, not how audio is transcribed/synthesised.
+# "heuristic" is the original deterministic template (no LLM call, always
+# available); "openai"/"gemini" ground an LLM in the same graph facts.
+VALID_LLM_ANSWER_PROVIDERS = ("heuristic", "openai", "gemini")
+
+DEFAULT_LLM_ANSWER_PROVIDER = "heuristic"
+
 
 @dataclass(frozen=True)
 class VoiceSettings:
@@ -46,12 +54,23 @@ class VoiceSettings:
     vertex_stt_model: str = "gemini-2.5-flash"
     vertex_tts_voice: str = "en-US-Neural2-C"
 
+    # Answer generation (response_text wording) - independent of the speech
+    # provider above. "heuristic" (default) needs no key. "openai"/"gemini"
+    # reuse the API keys already configured for speech.
+    llm_answer_provider: str = DEFAULT_LLM_ANSWER_PROVIDER
+    llm_answer_model: str = ""
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> VoiceSettings:
         source = env if env is not None else os.environ
         provider = source.get("VOICE_PROVIDER", DEFAULT_PROVIDER).strip().lower()
         if provider not in VALID_PROVIDERS:
             provider = DEFAULT_PROVIDER
+        llm_answer_provider = (
+            source.get("LLM_ANSWER_PROVIDER", DEFAULT_LLM_ANSWER_PROVIDER).strip().lower()
+        )
+        if llm_answer_provider not in VALID_LLM_ANSWER_PROVIDERS:
+            llm_answer_provider = DEFAULT_LLM_ANSWER_PROVIDER
         return cls(
             provider=provider,
             request_timeout=_float(source, "VOICE_TIMEOUT", 30.0),
@@ -81,6 +100,8 @@ class VoiceSettings:
             vertex_location=source.get("VERTEX_LOCATION", "us-central1"),
             vertex_stt_model=source.get("VERTEX_STT_MODEL", "gemini-2.5-flash"),
             vertex_tts_voice=source.get("VERTEX_TTS_VOICE", "en-US-Neural2-C"),
+            llm_answer_provider=llm_answer_provider,
+            llm_answer_model=source.get("LLM_ANSWER_MODEL", ""),
         )
 
 

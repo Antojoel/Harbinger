@@ -371,6 +371,16 @@ class VertexProvider:
         return Audio(base64.b64decode(audio_b64), "audio/wav")
 
 
+def vertex_access_token(settings: VoiceSettings) -> str:
+    """Mint a fresh Vertex AI access token from the same service-account
+    credential as :class:`VertexProvider`, for callers (``voice/llm_answer.py``)
+    that need Vertex auth without going through the full speech provider.
+    Raises :class:`VoiceProviderError` with the same messages as
+    ``VertexProvider(settings)`` on missing/invalid config.
+    """
+    return VertexProvider(settings)._access_token()
+
+
 # ---------------------------------------------------------------------------
 # local
 # ---------------------------------------------------------------------------
