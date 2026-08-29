@@ -5,6 +5,13 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Local agent scratchpad — not shared, not committed
+.scratchpad/
 
 # Logs
 logs
