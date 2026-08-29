@@ -134,13 +134,21 @@ The speech backend is set by `VOICE_PROVIDER`:
 | `gemini` | Gemini `generateContent` | `GEMINI_API_KEY` |
 | `local` | `stt` (faster-whisper, or Kroko/sherpa-onnx via `STT_ENGINE=sherpa`) + `tts` (Kokoro-82M) containers | — |
 
-The risk answer is always computed locally from the graph; only speech I/O varies. The
-`stt` (`:8100`) and `tts` (`:8200`) services come up with `docker-compose up` and both
-request the GPU (`gpus: all`, needs nvidia-container-toolkit). `stt` defaults to
-faster-whisper (`STT_WHISPER_MODEL=small.en`) and uses CUDA automatically, falling back
-to CPU int8. The `tts` image builds against a CUDA torch wheel by default
-(`TORCH_INDEX_URL`; override to `.../whl/cpu` for a CPU-only host); on Apple Silicon run
-it natively with `TTS_BACKEND=mlx`.
+The risk answer is always computed locally from the graph; only speech I/O varies.
+`stt` (`:8100`) and `tts` (`:8200`) are **opt-in** — a plain `docker-compose up` never
+starts them (and doesn't need to: the dashboard's own voice widget uses the browser's
+Web Speech API, and the locked contract defaults to `text_only`). Bring them up
+explicitly with:
+
+```bash
+docker compose --profile voice-local up --build
+```
+
+Both default to CPU (`STT_DEVICE=auto`, `KOKORO_DEVICE=auto` — CPU when no GPU is
+visible). On a real GPU host with `nvidia-container-toolkit`, uncomment the `deploy`
+block for each service in `docker-compose.yml` and, for `tts`, set
+`TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126`. On Apple Silicon, run `tts`
+natively instead with `TTS_BACKEND=mlx` (not a container target).
 
 **Local stdio (e.g. Claude Desktop / Claude Code):** run it directly and point the engine at your local instance —
 

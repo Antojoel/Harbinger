@@ -234,16 +234,27 @@ hard dependency between people — everything else is parallel.
       `gemini`, and `local`. `local` = two dockerised services: `services/stt`
       (`POST /transcribe` — faster-whisper by default, CUDA-auto, or the
       Kroko/sherpa-onnx transducer via `STT_ENGINE=sherpa`) and `services/tts`
-      (Kokoro-82M, `POST /speak`, CPU/CUDA, no upstream WebUI/branding). Both
-      come up with `docker-compose up` and request the GPU. `routes.py`'s
-      `/api/voice-query` stub is swapped for the real pipeline. The risk answer
-      is computed locally from the graph (status + matched patterns) — no LLM
-      in that path; a speech-provider failure degrades gracefully. Verified end
-      to end on an RTX 3060: TTS → WAV → STT recovers the sentence verbatim.
-      36 engine voice tests + tts/stt tests. **Anto: merge
-      `local-speech-feature` — it adds `stt`/`tts` to `docker-compose.yml`,
-      touches `routes.py`, and needs nvidia-container-toolkit on the host (or
-      drop `gpus: all` + build tts with `TORCH_INDEX_URL=.../whl/cpu`).)*
+      (Kokoro-82M, `POST /speak`, CPU/CUDA, no upstream WebUI/branding).
+      `routes.py`'s `/api/voice-query` stub is swapped for the real pipeline.
+      The risk answer is computed locally from the graph (status + matched
+      patterns) — no LLM in that path; a speech-provider failure degrades
+      gracefully. Verified end to end on an RTX 3060: TTS → WAV → STT
+      recovers the sentence verbatim. 36 engine voice tests + tts/stt tests.
+      Merged into `main`.
+      **Anto's follow-up (found live-testing on a non-GPU Mac): confirmed
+      exactly the risk Vignesh flagged** — `stt`/`tts` had `gpus: all`
+      unconditional and `tts` defaulted to a CUDA torch wheel, so a plain
+      `docker-compose up --build` hung on a multi-GB CUDA download and would
+      have failed outright at container-start (Docker Desktop on Mac has no
+      GPU passthrough). Fixed by making both **opt-in via a compose profile**
+      (`docker compose --profile voice-local up`) and CPU-default otherwise —
+      neither the dashboard's VoiceWidget (browser Web Speech API) nor the
+      locked contract's default `text_only` provider need them at all, so
+      the plain `docker-compose up` path (what judges will actually run)
+      never depends on a GPU. Verified: `docker compose config --services`
+      excludes `stt`/`tts` by default, includes them with `--profile
+      voice-local`. GPU users: uncomment the `deploy.resources.reservations`
+      block per service and set `TORCH_INDEX_URL` for `tts`.)*
 
 **🚩 Flag for Vignesh (found while adding a Neo4j data volume, not fixed here):**
 `GraphClient`'s driver doesn't auto-reconnect if Neo4j restarts while the

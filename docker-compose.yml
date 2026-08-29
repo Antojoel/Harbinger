@@ -45,12 +45,19 @@ services:
       neo4j:
         condition: service_healthy
 
-  # 2b. Speech-to-text. Default engine: faster-whisper (Whisper on CTranslate2),
-  #     CUDA-accelerated when a GPU is visible. Weights are baked into the image.
-  #     Set STT_ENGINE=sherpa for the lighter streaming Zipformer / Kroko model.
-  #     `gpus: all` needs nvidia-container-toolkit on the host; on a CPU-only
-  #     box drop that block and the engine falls back to CPU int8.
+  # 2b. Speech-to-text — OPT-IN ONLY (profile "voice-local"). The default
+  #     voice path (VOICE_PROVIDER=text_only, and the dashboard's own
+  #     VoiceWidget which uses the browser's Web Speech API) needs neither
+  #     this nor `tts` at all. Bring these up explicitly with:
+  #       docker compose --profile voice-local up
+  #     Both auto-detect CPU vs GPU internally (STT_DEVICE=auto /
+  #     KOKORO_DEVICE=auto) - CPU by default here so `docker compose up`
+  #     never depends on a GPU that may not exist. On a real GPU host with
+  #     nvidia-container-toolkit, uncomment the `deploy` block below (or set
+  #     it in a docker-compose.override.yml) and pass
+  #     TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 for tts.
   stt:
+    profiles: ["voice-local"]
     build:
       context: ./services/stt
       dockerfile: Dockerfile
@@ -66,23 +73,31 @@ services:
       # only used when STT_ENGINE=sherpa:
       - STT_HF_REPO=${STT_HF_REPO:-csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26}
       - STT_HF_TOKEN=${STT_HF_TOKEN:-}
-    gpus: all
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
 
-  # 2c. Text-to-speech (Kokoro-82M). Runs on CUDA when the image is built with a
-  #     CUDA torch wheel (TORCH_INDEX_URL) and the container gets a GPU.
+  # 2c. Text-to-speech (Kokoro-82M) — OPT-IN ONLY (profile "voice-local"),
+  #     same reasoning as stt above. CPU torch wheel by default (matches the
+  #     Dockerfile's own ARG default); pass TORCH_INDEX_URL for a CUDA build.
   tts:
+    profiles: ["voice-local"]
     build:
       context: ./services/tts
       dockerfile: Dockerfile
       args:
-        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     container_name: harbinger-tts
     ports:
       - "8200:8200"
     environment:
       - KOKORO_DEVICE=${KOKORO_DEVICE:-auto}
       - KOKORO_VOICE=${KOKORO_VOICE:-af_heart}
-    gpus: all
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
     volumes:
       - tts-models:/models
 
