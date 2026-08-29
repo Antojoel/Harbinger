@@ -371,7 +371,14 @@ async def pricing_endpoint():
 
 @router.post("/payments/order", summary="Create a real Razorpay test-mode order for a pricing tier (UI adapter)")
 async def payments_order_endpoint(payload: PaymentOrderUiRequest):
-    return razorpay_client.create_order(payload.tier_id, payload.shipment_id)
+    order = razorpay_client.create_order(payload.tier_id, payload.shipment_id)
+    if order.get("awaiting_keys"):
+        return order
+    # This frontend's Razorpay Checkout.js call reads `key_id`, not the
+    # locked contract's `razorpay_key_id` — translate here, not in
+    # razorpay_client, so /api/create-payment-order's documented shape
+    # stays untouched for other consumers.
+    return {**order, "key_id": order["razorpay_key_id"]}
 
 
 @router.post("/payments/verify", summary="Verify a completed checkout (UI adapter)")
