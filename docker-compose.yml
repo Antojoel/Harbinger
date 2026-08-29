@@ -1,15 +1,16 @@
-version: '3.8'
-
 services:
   # 1. Neo4j Graph Database
   neo4j:
     image: neo4j:5-community
     container_name: harbinger-neo4j
+    restart: unless-stopped
     ports:
       - "7474:7474" # HTTP Browser UI
       - "7687:7687" # Bolt Protocol
     environment:
       - NEO4J_AUTH=neo4j/password
+    volumes:
+      - neo4j_data:/data
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u neo4j -p password 'RETURN 1;' || exit 1"]
       interval: 10s
@@ -22,6 +23,7 @@ services:
       context: ./services/engine
       dockerfile: Dockerfile
     container_name: harbinger-engine
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -42,6 +44,7 @@ services:
       context: ./services/mcp-server
       dockerfile: Dockerfile
     container_name: harbinger-mcp-server
+    restart: unless-stopped
     ports:
       - "9000:9000" # MCP streamable-http endpoint at /mcp
     environment:
@@ -61,6 +64,7 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
     container_name: harbinger-web
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
@@ -68,3 +72,6 @@ services:
       - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     depends_on:
       - engine
+
+volumes:
+  neo4j_data:

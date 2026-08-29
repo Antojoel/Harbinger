@@ -12,14 +12,24 @@ export default function Login() {
   const buttonRef = useRef(null);
   const [busyGuest, setBusyGuest] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
+  const [googleUnavailable, setGoogleUnavailable] = useState(false);
 
   useEffect(() => {
     if (!googleConfigured || !GOOGLE_CLIENT_ID) return;
 
     let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 20; // ~3s at 150ms - the GSI script commonly gets
+    // blocked outright by privacy-focused browsers (Brave Shields, strict
+    // tracker blockers), so this must give up instead of polling forever.
     const tryInit = () => {
       if (cancelled) return;
       if (!window.google?.accounts?.id) {
+        attempts += 1;
+        if (attempts >= MAX_ATTEMPTS) {
+          setGoogleUnavailable(true);
+          return;
+        }
         setTimeout(tryInit, 150);
         return;
       }
@@ -71,10 +81,16 @@ export default function Login() {
         </p>
 
         <div className="flex flex-col items-center gap-3">
-          {googleConfigured && GOOGLE_CLIENT_ID ? (
+          {googleConfigured && GOOGLE_CLIENT_ID && !googleUnavailable ? (
             <div ref={buttonRef} className="flex justify-center">
               {!googleReady && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
             </div>
+          ) : googleUnavailable ? (
+            <p className="text-xs text-muted-foreground">
+              Google sign-in didn't load — likely blocked by a browser privacy
+              shield or ad blocker. Use guest login below, or allow scripts
+              from accounts.google.com and reload.
+            </p>
           ) : (
             <p className="text-xs text-muted-foreground">
               Google sign-in isn't configured for this deployment.

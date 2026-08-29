@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { api, getToken, setToken, clearToken } from "@/lib/api";
 
 const AuthContext = createContext(null);
@@ -10,13 +10,22 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [googleConfigured, setGoogleConfigured] = useState(false);
+  const configFetched = useRef(false);
+  const sessionResumed = useRef(false);
 
+  // Guarded with a ref, not just an empty dep array - React StrictMode
+  // double-invokes effects once in dev, and this must never turn into a
+  // repeated fetch under any mount pattern.
   useEffect(() => {
+    if (configFetched.current) return;
+    configFetched.current = true;
     api.config().then((c) => setGoogleConfigured(!!c.google_login_configured)).catch(() => {});
   }, []);
 
   // Resume a session from a stored token on page load
   useEffect(() => {
+    if (sessionResumed.current) return;
+    sessionResumed.current = true;
     if (!getToken()) {
       setLoading(false);
       return;

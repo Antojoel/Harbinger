@@ -247,6 +247,17 @@ hard dependency between people — everything else is parallel.
       - Tell Anto directly once this is live so `/api/voice-query`'s stub
         response in `routes.py` gets swapped for the real call — same
         hand-off rule as V4/A5.
+
+**🚩 Flag for Vignesh (found while adding a Neo4j data volume, not fixed here):**
+`GraphClient`'s driver doesn't auto-reconnect if Neo4j restarts while the
+engine stays up — `execute_read`/`execute_write` catch `ServiceUnavailable`
+and return `[]`/degraded-mode results, but nothing re-attempts opening a
+fresh connection afterward, so it stays degraded until the engine itself
+restarts. Confirmed with a real test: Neo4j force-recreated, data
+survived (it's now on a persistent volume), but `/api/patterns` kept
+returning empty until `docker-compose restart engine`. Not urgent for a
+normal `docker-compose up`, but worth a `connect()` retry/health-check
+path if there's time.
 ---
 
 ## Harish — Frontend: React + Tailwind
