@@ -227,26 +227,23 @@ hard dependency between people — everything else is parallel.
       seeded Neo4j instance: pattern matching and frequency-reinforcement
       both work correctly end-to-end.)*
 
-**🆕 Picked up from Anto (was A7) — no external API dependency, unblocked by nothing:**
-- [ ] **V5.** Voice pipeline for `/api/voice-query`, using a **local model**
-      instead of Vertex AI or the AI Grants India key (both currently
-      unusable — see A7 note above). Your call on exact tooling; you
-      mentioned running it with `--jinja` (llama.cpp server's Jinja
-      chat-template flag, typically used so the model's tool/function-call
-      formatting round-trips correctly) — go with whatever local setup you
-      already have working.
-      - Must satisfy the locked contract: request `{"shipment_id",
-        "audio_base64"}` → response `{"transcript", "response_text",
-        "response_audio_base64"}`.
-      - STT the incoming audio → call `engine.simulate()` or
-        `engine.query_patterns()` internally for the actual risk answer →
-        TTS the response back. If your local model stack only covers
-        text (no local TTS), it's fine to land STT + text reasoning first
-        and stub `response_audio_base64` — say so explicitly rather than
-        silently shipping a fake audio string.
-      - Tell Anto directly once this is live so `/api/voice-query`'s stub
-        response in `routes.py` gets swapped for the real call — same
-        hand-off rule as V4/A5.
+**🆕 Picked up from Anto (was A7):**
+- [x] ~~**V5.** Voice pipeline for `/api/voice-query`.~~
+      *(done, branch `local-speech-feature`. Provider abstraction selected by
+      `VOICE_PROVIDER`: `text_only` (default, no speech infra), `openai`,
+      `gemini`, and `local`. `local` = two dockerised services: `services/stt`
+      (`POST /transcribe` — faster-whisper by default, CUDA-auto, or the
+      Kroko/sherpa-onnx transducer via `STT_ENGINE=sherpa`) and `services/tts`
+      (Kokoro-82M, `POST /speak`, CPU/CUDA, no upstream WebUI/branding). Both
+      come up with `docker-compose up` and request the GPU. `routes.py`'s
+      `/api/voice-query` stub is swapped for the real pipeline. The risk answer
+      is computed locally from the graph (status + matched patterns) — no LLM
+      in that path; a speech-provider failure degrades gracefully. Verified end
+      to end on an RTX 3060: TTS → WAV → STT recovers the sentence verbatim.
+      36 engine voice tests + tts/stt tests. **Anto: merge
+      `local-speech-feature` — it adds `stt`/`tts` to `docker-compose.yml`,
+      touches `routes.py`, and needs nvidia-container-toolkit on the host (or
+      drop `gpus: all` + build tts with `TORCH_INDEX_URL=.../whl/cpu`).)*
 
 **🚩 Flag for Vignesh (found while adding a Neo4j data volume, not fixed here):**
 `GraphClient`'s driver doesn't auto-reconnect if Neo4j restarts while the

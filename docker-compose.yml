@@ -34,9 +34,49 @@ services:
       - RAZORPAY_SECRET=${RAZORPAY_SECRET:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
+      # Voice pipeline (POST /api/voice-query). One of:
+      #   text_only (default, no speech infra) | openai | gemini | local
+      - VOICE_PROVIDER=${VOICE_PROVIDER:-text_only}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - STT_URL=http://stt:8100
+      - TTS_URL=http://tts:8200
     depends_on:
       neo4j:
         condition: service_healthy
+
+  # 2b. Speech-to-text (Kroko / Zipformer on sherpa-onnx) — used when
+  #     VOICE_PROVIDER=local. Downloads a public model on first start; set
+  #     STT_HF_REPO=Banafo/test-onnx + STT_HF_TOKEN for the real Kroko models.
+  stt:
+    build:
+      context: ./services/stt
+      dockerfile: Dockerfile
+    container_name: harbinger-stt
+    ports:
+      - "8100:8100"
+    environment:
+      - STT_HF_REPO=${STT_HF_REPO:-csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26}
+      - STT_HF_TOKEN=${STT_HF_TOKEN:-}
+    volumes:
+      - stt-models:/models
+
+  # 2c. Text-to-speech (Kokoro-82M) — used when VOICE_PROVIDER=local.
+  #     For NVIDIA GPU: build with TORCH_INDEX_URL=.../cu126 and uncomment the
+  #     `gpus` line below (needs nvidia-container-toolkit on the host).
+  tts:
+    build:
+      context: ./services/tts
+      dockerfile: Dockerfile
+    container_name: harbinger-tts
+    ports:
+      - "8200:8200"
+    environment:
+      - KOKORO_DEVICE=${KOKORO_DEVICE:-auto}
+      - KOKORO_VOICE=${KOKORO_VOICE:-af_heart}
+    # gpus: all
+    volumes:
+      - tts-models:/models
 
   # 3. Model Context Protocol (MCP) Server Adapter
   mcp-server:
@@ -75,3 +115,5 @@ services:
 
 volumes:
   neo4j_data:
+  stt-models:
+  tts-models:

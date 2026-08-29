@@ -22,6 +22,7 @@ from typing import Dict, Any, List, Optional
 from core import engine, shipment_store, user_store
 from api import ui_adapter
 from integrations import razorpay_client, google_auth
+from voice import answer_voice_query
 
 router = APIRouter()
 
@@ -174,20 +175,19 @@ async def query_patterns_endpoint(hs_code: Optional[str] = Query(None), country:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/voice-query", summary="Voice-driven shipment risk query")
+@router.post("/voice-query", summary="Voice-driven shipment risk query (STT -> graph -> TTS)")
 async def voice_query_endpoint(payload: VoiceQueryRequest):
     """
-    POST /voice-query: STUB for the audio_base64-based contract. The ported
-    dashboard's VoiceWidget uses the browser's own Web Speech API for STT/TTS
-    and calls /api/voice (below) with plain text instead — so this endpoint
-    isn't on the demo's actual critical path anymore, but stays here for
-    contract compatibility until Vignesh's V5 lands.
+    POST /voice-query: transcribes the audio, answers the shipment's hold risk
+    from the immune-memory graph, and speaks the answer back. The speech
+    backend is selected by the ``VOICE_PROVIDER`` env var
+    (``text_only`` | ``openai`` | ``gemini`` | ``local``); see
+    ``services/engine/app/voice/``.
     """
-    return {
-        "transcript": "What's this shipment's hold risk?",
-        "response_text": "73% likely held: missing Certificate of Origin.",
-        "response_audio_base64": "STUB_AUDIO_BASE64_PLACEHOLDER"
-    }
+    try:
+        return await answer_voice_query(payload.shipment_id, payload.audio_base64)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/create-payment-order", summary="Create a real Razorpay test-mode order")

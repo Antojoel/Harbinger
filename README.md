@@ -121,6 +121,24 @@ The MCP server exposes the same three operations as tools for any MCP-compatible
 
 **Networked (default in Docker Compose):** streamable-http at `http://localhost:9000/mcp`.
 
+### 🎙️ Voice query
+
+`POST /api/voice-query` (`{shipment_id, audio_base64}` → `{transcript, response_text, response_audio_base64}`)
+transcribes the audio, answers the shipment's hold risk from the graph, and speaks it back.
+The speech backend is set by `VOICE_PROVIDER`:
+
+| `VOICE_PROVIDER` | STT / TTS | Needs |
+|---|---|---|
+| `text_only` *(default)* | none — `audio_base64` is treated as UTF-8 text | nothing |
+| `openai` | OpenAI `/audio/transcriptions` + `/audio/speech` | `OPENAI_API_KEY` |
+| `gemini` | Gemini `generateContent` | `GEMINI_API_KEY` |
+| `local` | `stt` (Kroko / Zipformer on sherpa-onnx) + `tts` (Kokoro-82M) containers | — |
+
+The risk answer is always computed locally from the graph; only speech I/O varies. The
+`stt` (`:8100`) and `tts` (`:8200`) services come up with `docker-compose up`. TTS runs on
+CPU by default — build `services/tts` with `--build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126`
+and set `gpus: all` for NVIDIA, or run natively with `TTS_BACKEND=mlx` on Apple Silicon.
+
 **Local stdio (e.g. Claude Desktop / Claude Code):** run it directly and point the engine at your local instance —
 
 ```bash

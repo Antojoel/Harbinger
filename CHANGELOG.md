@@ -15,6 +15,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `.gitignore` now excludes `.env`/`.env.*` — it was untracked but not ignored, so a broad `git add` could have leaked the API key. Verified it was never actually committed before fixing.
 
 ### Added
+- Voice pipeline for `POST /api/voice-query` (Vignesh, V5): speech-to-text → risk answer from the immune-memory graph → text-to-speech, with a pluggable speech backend chosen by the `VOICE_PROVIDER` env var.
+  - `services/engine/app/voice/` — `text_only` (default; no speech infra, `audio_base64` treated as UTF-8 text), `openai` (`/audio/transcriptions` + `/audio/speech`), `gemini` (`generateContent` STT + TTS, PCM wrapped to WAV), and `local` (calls the bundled `stt` / `tts` services). Provider construction falls back to `text_only` on missing credentials so the endpoint never hard-fails.
+  - The spoken answer is computed locally and deterministically from the graph (shipment status + matched patterns via `graph_client.execute_read`) — no LLM in that path. A speech-provider failure degrades to an empty transcript / empty audio but the text answer is always returned.
+  - `services/engine/app/api/routes.py` — `/api/voice-query` now calls the real pipeline instead of returning a hardcoded stub.
+  - 36 unit tests (`text_only`/`openai`/`gemini`/`local` via `httpx.MockTransport`, the graph-driven answer, and the orchestrator's degradation paths).
+- `services/stt/` — Harbinger STT service: Kroko / Zipformer transducer on the sherpa-onnx runtime behind `POST /transcribe` (multipart audio, any format via ffmpeg → 16 kHz mono) and `GET /health`. Ships with a fully public default model; set `STT_HF_REPO=Banafo/test-onnx` + `STT_HF_TOKEN` for the real Kroko community models, or mount a model dir with `STT_MODEL_DIR`.
+- `services/tts/` — Harbinger TTS service: Kokoro-82M behind `POST /speak` (`{text, voice?, speed?}` → `audio/wav`) and `GET /health`, no upstream WebUI or branding. `torch` backend (CPU or CUDA via a `TORCH_INDEX_URL` build arg) plus an `mlx` backend path for Apple Silicon; `services/tts/espeak.py` steers the phonemizer to a working system `espeak-ng` (Kokoro's bundled one has a broken data path).
+- Verified the full local speech loop end to end: text → Kokoro TTS → WAV → sherpa-onnx STT recovers the sentence.
+- `docker-compose.yml` — new `stt` (`:8100`) and `tts` (`:8200`) services that come up with the stack; the `engine` service gains the `VOICE_*` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `STT_URL` / `TTS_URL` environment; named volumes cache the downloaded models.
+- `.env.example` documenting every voice / speech env var.
 - Initial monorepo scaffold: Python/FastAPI core engine, MCP adapter server, React + Tailwind web app, and Neo4j graph database, orchestrated with Docker Compose.
 - REST API skeleton (`POST /api/simulate`, `POST /api/record-outcome`, `GET /api/graph`, `GET /api/patterns`) for the Predictive Preemption + Immune Memory engine.
 - MCP server skeleton exposing `check_shipment_risk`, `record_outcome_tool`, and `query_patterns_tool`, proxying to the engine's REST API over HTTP.

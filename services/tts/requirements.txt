@@ -1,0 +1,11 @@
+# Base service deps. Torch is installed separately by the Dockerfile so the
+# CPU / CUDA variant can be chosen at build time.
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.6.0
+numpy>=1.26.0
+kokoro>=0.9.4
+soundfile>=0.12.1
+misaki[en]>=0.9.4
+huggingface-hub>=0.24.0
+phonemizer-fork>=3.3.2
