@@ -241,19 +241,40 @@ hard dependency between people — everything else is parallel.
 
 ## Harish — Frontend: React + Tailwind
 
-**🔒 Depends on: A3 only (the stub, not any real logic) — everything below can be built the moment A3 is pushed:**
-- [ ] **H1.** ShipmentUpload: upload 4 document types, `POST /api/simulate`
-- [ ] **H2.** RiskChecklist: render `risk_score` + `reasons[]` from the
-      contract above, plus a drafted-fix approval flow
-- [ ] **H3.** GraphVisualization: render `nodes[]`/`edges[]` from
-      `GET /api/graph` (use `vis-network`), and make sure it visibly
-      re-renders after a `record-outcome` call — this live "memory
-      growing" moment is a core part of the demo
-- [ ] **H4.** VoiceWidget: mic button, calls `POST /api/voice-query`, plays
-      back `response_audio_base64`, shows `transcript` + `response_text`
-- [ ] **H5.** PricingCheckout: pricing screen with ROI math, calls
-      `POST /api/create-payment-order` then `POST /api/verify-payment`
-      on the Razorpay checkout callback
+**Status: found untouched, then wired in — see note below before doing anything else here.**
+
+- [x] ~~**H1.** ShipmentUpload~~, ~~**H2.** RiskChecklist~~, ~~**H3.** GraphVisualization~~,
+      ~~**H4.** VoiceWidget~~, ~~**H5.** PricingCheckout~~
+      *(Harish built a full, more ambitious version of all 5 independently
+      using an AI app-builder called Emergent — found sitting untracked at
+      `apps/ClearanceGuard-main`, complete but wired to its own bespoke
+      Mongo+FastAPI backend, not ours. Ported the frontend into `apps/web`,
+      migrated it off CRA/craco onto Vite (CRA is unmaintained and hit a
+      real dependency-resolution dead end — 1522 packages down to 287),
+      and rewrote its API layer to call the real engine instead. This
+      needed real backend additions since the dashboard assumes a
+      persistent shipment catalog the original contract never had:
+      `app/core/shipment_store.py` (in-memory, 6 seeded shipments engineered
+      to trigger real contradictions against Vignesh's actual seeded graph
+      data) and `app/api/ui_adapter.py` (translates the locked contract's
+      shapes into what the dashboard expects — additive only, MCP/other
+      consumers are unaffected). Verified end-to-end against a real Neo4j
+      instance: shipment list/detail, simulate, approve-fix (with the
+      auto-fix-vs-human-draft guardrail enforced server-side), record
+      real outcomes (confirmed pattern frequency actually increments),
+      pricing, and voice Q&A all work. Full production `vite build`
+      succeeds (2775 modules, zero errors).
+      **Bonus finding: VoiceWidget uses the browser's own Web Speech API for
+      STT/TTS and only sends transcribed text to the backend — so the
+      voice feature never needed Vertex AI or Vignesh's local-model work
+      (V5) at all. `/api/voice` is a plain text Q&A endpoint.**
+      Email escalation and the Integrations page were out of scope — both
+      routes still exist and don't crash, but are stubbed
+      (`/api/config`, `/api/email/*`, `/api/integrations`), not real.)*
+- [ ] **H-next.** Harish: pull, `npm install`, `npm run dev`, and take this
+      over for real — polish, fix anything that looks off, and own it going
+      forward. This was an emergency wire-in to unblock the demo, not a
+      replacement for you driving the frontend.
 
 **Nothing here depends on A4, A5, A6, A7, or A8 being real** — the contract
 is the only thing that matters to you. If something you need isn't in the

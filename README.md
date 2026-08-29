@@ -64,7 +64,7 @@ The graph isn't just storage — it's rendered live in the web app. Confirming a
 | Core engine | Python, FastAPI |
 | Immune memory | Neo4j (graph DB) |
 | REST + MCP adapters | FastAPI + `httpx`, MCP server |
-| Frontend | React, TypeScript, Vite, Tailwind CSS, `vis-network` for live graph viz |
+| Frontend | React (Vite), Tailwind CSS + shadcn/ui, `reactflow` for live graph viz, `recharts` for the pricing page |
 | Orchestration | Docker Compose |
 | Voice interface | Vertex AI (speech-to-text / text-to-speech) |
 | Payments | Razorpay |
@@ -81,7 +81,7 @@ That's it — one command brings up the graph database, the core engine, the MCP
 
 | Service | URL | Notes |
 |---|---|---|
-| 🖥️ Web App | http://localhost:3000 | The demo consumer app |
+| 🖥️ Web App | http://localhost:3000 | The demo consumer app — a Control Tower dashboard of seeded shipments, per-shipment risk simulation, the live immune-memory graph, a voice Q&A widget, and pricing/checkout |
 | ⚙️ Engine REST API | http://localhost:8000 | Interactive docs at `/docs` (Swagger) |
 | 🧠 Neo4j Browser | http://localhost:7474 | Auth: `neo4j` / `password` — explore the immune memory graph directly |
 | 🔌 MCP Server | http://localhost:9000/mcp | MCP endpoint (streamable-http); proxies tool calls to the engine's REST API |
@@ -99,6 +99,8 @@ curl http://localhost:8000/api/patterns
 | `POST` | `/api/record-outcome` | Records a real outcome — this is what grows the immune-memory graph |
 | `GET` | `/api/graph` | Returns the current graph as nodes + edges JSON, for visualization |
 | `GET` | `/api/patterns` | Lists known failure patterns, optionally filtered by HS code / country |
+
+The web app also talks to a set of **UI-adapter endpoints** (`/api/stats`, `/api/shipments`, `/api/shipments/{id}`, `/api/approve-fix`, `/api/outcome`, `/api/pricing`, `/api/payments/*`, `/api/voice`) that exist to give the dashboard a shipment catalog — the original locked contract above never had one. They're thin translation layers over the same `simulate()`/`record_outcome()` core (see `services/engine/app/api/ui_adapter.py` and `app/core/shipment_store.py`, an in-memory demo store, not a database) and don't change anything about the locked contract's behavior.
 
 ### 🔌 MCP server
 
@@ -131,7 +133,8 @@ Transport is chosen with `MCP_TRANSPORT` (`stdio` | `streamable-http` | `sse`); 
 │   ├── engine/        # Core FastAPI engine + Neo4j graph logic
 │   └── mcp-server/     # MCP adapter, proxies to the engine over HTTP
 ├── apps/
-│   └── web/            # React + Tailwind demo app
+│   └── web/            # React (Vite) + Tailwind demo app — Control Tower
+│                       # dashboard, ported from an Emergent-generated build
 └── TASKS.md            # Team workstreams — see below
 ```
 

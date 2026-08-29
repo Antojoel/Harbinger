@@ -1,0 +1,8 @@
+.App {
+  min-height: 100vh;
+}
+
+/* keep reactflow attribution unobtrusive */
+.react-flow__attribution {
+  display: none;
+}
