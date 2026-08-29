@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Reassigned the voice pipeline (`A7`, now `V5`) from Anto to Vignesh, and from Vertex AI to a local model. The AI Grants India key (`.env`) was tested directly against `/v1/models` and only exposes `gpt-5-nano` (text-only, no audio models); Vertex AI is also currently unusable. Vignesh has a local-model workaround (`--jinja`).
+- `.gitignore` now excludes `.env`/`.env.*` — it was untracked but not ignored, so a broad `git add` could have leaked the API key. Verified it was never actually committed before fixing.
+
 ### Added
 - Initial monorepo scaffold: Python/FastAPI core engine, MCP adapter server, React + Tailwind web app, and Neo4j graph database, orchestrated with Docker Compose.
 - REST API skeleton (`POST /api/simulate`, `POST /api/record-outcome`, `GET /api/graph`, `GET /api/patterns`) for the Predictive Preemption + Immune Memory engine.

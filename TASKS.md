@@ -139,10 +139,12 @@ hard dependency between people — everything else is parallel.
       `query_patterns_tool`), each calling the REST endpoints via `httpx`.
       This only needs A3, not A4/A5 — build it right after the stub, don't
       wait for real logic.
-- [ ] **A7.** Vertex AI voice pipeline: implement `/api/voice-query` for
-      real (STT the incoming audio, call `simulate()` or `query_patterns()`
-      internally, TTS the response). Can be built and tested against the
-      A2 stub before A4/A5 are real.
+- [ ] ~~**A7.** Vertex AI voice pipeline~~ **REASSIGNED to Vignesh, see below.**
+      Both credentialed options for this are currently unusable: the
+      AI Grants India key (`.env` → `OPENAI_API_KEY`) is real but scoped to
+      `gpt-5-nano` text-only — no `tts-1`/`whisper-1`/any audio model
+      available on it (verified directly against `/v1/models`); Vertex AI
+      is also not usable right now. Vignesh has a local-model workaround.
 - [ ] **A8.** Razorpay integration: implement `/api/create-payment-order`
       and `/api/verify-payment` for real. Zero dependency on the engine
       logic at all — do this whenever, even first, if you want a quick win
@@ -210,6 +212,26 @@ hard dependency between people — everything else is parallel.
       seeded Neo4j instance: pattern matching and frequency-reinforcement
       both work correctly end-to-end.)*
 
+**🆕 Picked up from Anto (was A7) — no external API dependency, unblocked by nothing:**
+- [ ] **V5.** Voice pipeline for `/api/voice-query`, using a **local model**
+      instead of Vertex AI or the AI Grants India key (both currently
+      unusable — see A7 note above). Your call on exact tooling; you
+      mentioned running it with `--jinja` (llama.cpp server's Jinja
+      chat-template flag, typically used so the model's tool/function-call
+      formatting round-trips correctly) — go with whatever local setup you
+      already have working.
+      - Must satisfy the locked contract: request `{"shipment_id",
+        "audio_base64"}` → response `{"transcript", "response_text",
+        "response_audio_base64"}`.
+      - STT the incoming audio → call `engine.simulate()` or
+        `engine.query_patterns()` internally for the actual risk answer →
+        TTS the response back. If your local model stack only covers
+        text (no local TTS), it's fine to land STT + text reasoning first
+        and stub `response_audio_base64` — say so explicitly rather than
+        silently shipping a fake audio string.
+      - Tell Anto directly once this is live so `/api/voice-query`'s stub
+        response in `routes.py` gets swapped for the real call — same
+        hand-off rule as V4/A5.
 ---
 
 ## Harish — Frontend: React + Tailwind
