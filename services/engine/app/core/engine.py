@@ -1,180 +1,98 @@
 """
 Core Engine Module for Harbinger
 ================================
-Implements trade document simulation, contradiction detection (unit mismatch,
-missing certificates, HS code mismatch), outcome recording, and graph snapshot
-extraction by interfacing with graph_client (Neo4j).
+Orchestrates trade document simulation, outcome recording, pattern queries,
+and graph snapshots by delegating to graph_client (Neo4j).
+
+Contradiction detection (unit mismatch, missing certificate, HS code
+mismatch/deprecated) is NOT duplicated here — graph_client.find_matching_patterns()
+already applies graph.rules internally to the raw documents payload. This
+module's job is orchestration and shaping responses to the locked API
+contract in TASKS.md, not re-implementing business rules that already live
+in the graph layer.
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
 from graph.neo4j_client import graph_client
 
 logger = logging.getLogger("engine")
 
 
-def _get_doc(documents: Dict[str, Any], *names: str) -> Optional[Dict[str, Any]]:
-    """Helper to retrieve a document dict from the documents dictionary by candidate names."""
-    if not isinstance(documents, dict):
-        return None
-    for name in names:
-        doc = documents.get(name)
-        if isinstance(doc, dict):
-            return doc
-    return None
+def _extract_hs_code_and_country(shipment_docs: Dict[str, Any]) -> Tuple[str, str]:
+    documents = shipment_docs.get("documents") or {}
+    invoice = documents.get("commercial_invoice") or {}
 
+    hs_code = str(
+        shipment_docs.get("hs_code")
+        or invoice.get("hs_code")
+        or ""
+    ).strip()
 
-def _get_field(doc: Optional[Dict[str, Any]], *keys: str) -> Any:
-    """Helper to extract a field value from a document dict using candidate keys."""
-    if not isinstance(doc, dict):
-        return None
-    for key in keys:
-        if key in doc and doc[key] is not None:
-            return doc[key]
-    return None
+    country = str(
+        shipment_docs.get("country")
+        or shipment_docs.get("destination_country")
+        or ""
+    ).strip()
+
+    return hs_code, country
 
 
 def simulate(shipment_docs: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Simulates customs clearance for a shipment by evaluating uploaded trade documents
-    against Neo4j graph rules and historical rejection patterns.
+    Simulates customs clearance for a shipment by asking the immune-memory
+    graph which known failure patterns this shipment's documents trigger.
 
     Args:
-        shipment_docs (dict): Payload containing shipment_id and documents = {
-                              commercial_invoice, packing_list, bill_of_lading,
-                              certificate_of_origin}.
+        shipment_docs (dict): Payload containing shipment_id, documents,
+                              and optionally hs_code/country (see
+                              api.routes.SimulateRequest).
 
     Returns:
-        dict: Exact shape:
-              {
-                "shipment_id": str,
-                "risk_score": float,
-                "reasons": [{"code": str, "detail": str}, ...],
-                "matched_patterns": [pattern_id, ...]
-              }
+        dict: Exact locked shape:
+              {"shipment_id": str, "risk_score": float,
+               "reasons": [{"code": str, "detail": str}, ...],
+               "matched_patterns": [pattern_id, ...]}
     """
     shipment_id = str(shipment_docs.get("shipment_id") or shipment_docs.get("id") or "MSKU1234567")
-    raw_docs = shipment_docs.get("documents")
-    documents = raw_docs if isinstance(raw_docs, dict) else {}
+    documents = shipment_docs.get("documents") or {}
+    hs_code, country = _extract_hs_code_and_country(shipment_docs)
 
-    commercial_invoice = _get_doc(documents, "commercial_invoice", "invoice")
-    packing_list = _get_doc(documents, "packing_list", "packing")
-    bill_of_lading = _get_doc(documents, "bill_of_lading", "bol")
-    certificate_of_origin = _get_doc(documents, "certificate_of_origin", "coo", "certificate")
+    patterns = graph_client.find_matching_patterns(hs_code, country, documents)
 
-    # Extract HS Code and Destination Country for graph lookup
-    hs_code = str(
-        _get_field(commercial_invoice, "hs_code", "hts_code", "hscode") or
-        _get_field(packing_list, "hs_code", "hts_code", "hscode") or
-        _get_field(bill_of_lading, "hs_code", "hts_code", "hscode") or
-        shipment_docs.get("hs_code") or ""
-    ).strip()
+    reasons = [{"code": p.reason_code, "detail": p.detail} for p in patterns]
+    matched_patterns = [p.pattern_id for p in patterns]
 
-    country = str(
-        _get_field(commercial_invoice, "country", "destination_country", "destination") or
-        shipment_docs.get("country") or
-        shipment_docs.get("destination_country") or ""
-    ).strip()
-
-    reasons: List[Dict[str, str]] = []
-    has_unit_mismatch = False
-    has_hs_mismatch = False
-    req_certs: List[Dict[str, Any]] = []
-
-    # 1. Check UNIT_MISMATCH: commercial_invoice.units != packing_list.units
-    if commercial_invoice and packing_list:
-        ci_units = _get_field(commercial_invoice, "units", "unit_count", "quantity", "pieces")
-        pl_units = _get_field(packing_list, "units", "unit_count", "quantity", "pieces")
-
-        if ci_units is not None and pl_units is not None and str(ci_units) != str(pl_units):
-            has_unit_mismatch = True
-            reasons.append({
-                "code": "UNIT_MISMATCH",
-                "detail": f"Commercial Invoice lists {ci_units} units, Packing List lists {pl_units} units — mismatch detected"
-            })
-
-    # 2. Check MISSING_CERTIFICATE: certificate_of_origin is None/missing AND required certs exist
-    has_coo = bool(certificate_of_origin)
-    if not has_coo:
-        req_certs = graph_client.get_required_certificates(hs_code, country)
-        if req_certs:
-            cert_names = [c.get("name", "Certificate of Origin") for c in req_certs if isinstance(c, dict)]
-            cert_str = ", ".join(cert_names) if cert_names else "Certificate of Origin"
-            reasons.append({
-                "code": "MISSING_CERTIFICATE",
-                "detail": f"Required certificate ({cert_str}) is missing for HS Code '{hs_code}' to country '{country}'"
-            })
-
-    # 3. Check HS_CODE_MISMATCH: commercial_invoice.hs_code doesn't match other documents
-    ci_hs = _get_field(commercial_invoice, "hs_code", "hts_code", "hscode")
-    if ci_hs:
-        ci_hs_str = str(ci_hs).strip()
-        other_docs = [
-            ("Packing List", packing_list),
-            ("Bill of Lading", bill_of_lading),
-            ("Certificate of Origin", certificate_of_origin),
-        ]
-        for doc_name, doc in other_docs:
-            if doc:
-                other_hs = _get_field(doc, "hs_code", "hts_code", "hscode")
-                if other_hs and str(other_hs).strip() != ci_hs_str:
-                    has_hs_mismatch = True
-                    reasons.append({
-                        "code": "HS_CODE_MISMATCH",
-                        "detail": f"Commercial Invoice HS code '{ci_hs_str}' contradicts {doc_name} HS code '{other_hs}'"
-                    })
-                    break
-
-    # Build signal dict for pattern matching
-    missing_cert_names = [c.get("name", "Certificate of Origin") for c in req_certs] if (not has_coo and req_certs) else []
-    signal = {
-        "unit_mismatch": has_unit_mismatch,
-        "missing_certs": missing_cert_names,
-        "hs_code_mismatch": has_hs_mismatch,
-    }
-
-    # Query graph for matching historical risk patterns
-    matched_patterns_raw = graph_client.find_matching_patterns(hs_code, country, signal)
-    matched_pattern_ids = [
-        p["pattern_id"] for p in matched_patterns_raw if isinstance(p, dict) and "pattern_id" in p
-    ]
-
-    # Append pattern reason details if matched
-    for pat in matched_patterns_raw:
-        if isinstance(pat, dict) and pat.get("detail"):
-            reasons.append({
-                "code": pat.get("reason_code", "HISTORICAL_PATTERN_MATCH"),
-                "detail": str(pat["detail"])
-            })
-
-    # Compute risk score (0.0 - 1.0) based on detected issues & pattern confidence
-    base_issue_risk = len(reasons) * 0.3
-    pattern_risk = sum(
-        p.get("confidence", 0.5) for p in matched_patterns_raw if isinstance(p, dict)
-    ) * 0.2 if matched_patterns_raw else 0.0
-
-    risk_score = round(min(1.0, max(0.0, base_issue_risk + pattern_risk)), 2)
+    if patterns:
+        top_confidence = max(p.confidence for p in patterns)
+        # Each additional corroborating issue nudges risk up slightly, capped at 1.0
+        risk_score = round(min(1.0, top_confidence + 0.05 * (len(patterns) - 1)), 2)
+    else:
+        risk_score = 0.0
 
     return {
         "shipment_id": shipment_id,
         "risk_score": risk_score,
         "reasons": reasons,
-        "matched_patterns": matched_pattern_ids
+        "matched_patterns": matched_patterns,
     }
 
 
 def record_outcome(shipment_id: str, actual_outcome: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Records the actual customs outcome for a shipment to reinforce or create Pattern nodes/edges
-    in Neo4j ("immune memory growing" mechanic).
+    Records the actual customs outcome for a shipment to reinforce or create
+    a Pattern node in Neo4j ("immune memory growing" mechanic).
 
     Args:
         shipment_id (str): The ID of the shipment (e.g. 'MSKU1234567').
-        actual_outcome (dict): Contains was_held (bool) and reason_code (str, optional).
+        actual_outcome (dict): Contains was_held (bool), reason_code (str,
+                               optional), and detail (str, optional).
 
     Returns:
-        dict: Exact shape:
-              {"status": "recorded", "pattern_updated": bool, "new_nodes": [...], "new_edges": [...]}
+        dict: Exact locked shape:
+              {"status": "recorded", "pattern_updated": bool,
+               "new_nodes": [...], "new_edges": [...]}
     """
     if not isinstance(actual_outcome, dict):
         actual_outcome = {}
@@ -183,29 +101,27 @@ def record_outcome(shipment_id: str, actual_outcome: Dict[str, Any]) -> Dict[str
     reason_code = actual_outcome.get("reason_code")
 
     if was_held and reason_code:
-        detail = actual_outcome.get("detail") or f"Customs hold recorded for shipment {shipment_id} due to {reason_code}"
-        res = graph_client.record_pattern(
-            reason_code=str(reason_code),
-            detail=str(detail),
-            shipment_context={"shipment_id": shipment_id}
-        )
-        new_nodes = res.get("new_nodes", []) if isinstance(res, dict) else []
-        new_edges = res.get("new_edges", []) if isinstance(res, dict) else []
-        pattern_id = res.get("pattern_id") if isinstance(res, dict) else None
-        pattern_updated = bool(pattern_id or new_nodes or new_edges)
+        shipment_context: Dict[str, Any] = {"shipment_id": shipment_id, "status": "held"}
+        detail = actual_outcome.get("detail")
+        if detail:
+            shipment_context["detail"] = detail
+
+        pattern = graph_client.record_pattern(str(reason_code), shipment_context)
 
         return {
             "status": "recorded",
-            "pattern_updated": pattern_updated,
-            "new_nodes": new_nodes,
-            "new_edges": new_edges
+            "pattern_updated": True,
+            "new_nodes": [pattern.pattern_id],
+            "new_edges": [
+                {"from": pattern.pattern_id, "to": pattern.reason_code, "type": "CAUSED_REJECTION"}
+            ],
         }
 
     return {
         "status": "recorded",
         "pattern_updated": False,
         "new_nodes": [],
-        "new_edges": []
+        "new_edges": [],
     }
 
 
@@ -214,24 +130,26 @@ def query_patterns(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, A
     Queries historical rejection and resolution patterns stored in the graph.
 
     Args:
-        filters (dict, optional): Optional filter parameters (e.g. hs_code, country).
+        filters (dict, optional): Optional filter parameters (hs_code, country).
 
     Returns:
-        list[dict]: Bare list of matched risk patterns returned from graph_client.list_patterns.
+        list[dict]: Bare list of Pattern.to_dict() results.
     """
     if filters is None:
         filters = {}
-    hs_code = filters.get("hs_code")
-    country = filters.get("country")
-    return graph_client.list_patterns(hs_code=hs_code, country=country)
+    patterns = graph_client.list_patterns(
+        hs_code=filters.get("hs_code"),
+        country=filters.get("country"),
+    )
+    return [p.to_dict() for p in patterns]
 
 
 def graph_snapshot() -> Dict[str, Any]:
     """
-    Returns a complete node & edge snapshot of the Neo4j knowledge graph formatted for
-    frontend visualization.
+    Returns a complete node & edge snapshot of the Neo4j knowledge graph
+    formatted for frontend visualization.
 
     Returns:
-        dict: Object with 'nodes' list and 'edges' list from graph_client.get_graph_snapshot().
+        dict: {"nodes": [...], "edges": [...]} from GraphSnapshot.to_dict().
     """
-    return graph_client.get_graph_snapshot()
+    return graph_client.graph_snapshot().to_dict()

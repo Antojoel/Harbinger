@@ -149,10 +149,27 @@ hard dependency between people — everything else is parallel.
       before tackling A4.
 
 **🔒 Depends on: A4 done + V4 done (Vignesh's real graph functions)**
-- [ ] **A5.** Swap the stub graph calls inside `simulate()`/`record_outcome()`
-      for real calls into Vignesh's `neo4j_client.py`. Coordinate this
-      hand-off directly with Vignesh — don't just merge and hope the
-      signatures still match.
+- [x] ~~**A5.** Swap the stub graph calls inside `simulate()`/`record_outcome()`
+      for real calls into Vignesh's `neo4j_client.py`.~~
+      *(done. The signatures did NOT match on first merge — Vignesh's real
+      implementation predates A4 and diverged from the placeholder interface
+      it was built against: `get_required_certificates()` doesn't exist
+      (folded into `find_matching_patterns()` internally), `find_matching_patterns()`
+      takes raw `documents` not a pre-computed signal, `record_pattern()`
+      takes different keyword args, `graph_snapshot()` was named
+      `get_graph_snapshot()` on our side, and everything returns
+      `Pattern`/`GraphSnapshot` dataclasses, not dicts. Rewrote `engine.py`
+      to call the real interface correctly and DELETED the duplicate
+      contradiction-detection logic A4 had written locally — Vignesh's
+      `graph.rules` module is now the single source of truth for that,
+      applied internally by `find_matching_patterns()`. Also found and fixed:
+      `SimulateRequest` in `routes.py` never declared a `country` field, so
+      Pydantic silently dropped it before it reached the engine — added it.
+      Verified against a real, seeded Neo4j instance (throwaway Docker
+      container): `/simulate` correctly matched real stored patterns
+      (PAT-001, PAT-014), and `/record-outcome` genuinely incremented
+      PAT-001's frequency 14→15 and confidence 0.82→0.83 — the "immune
+      memory grows" mechanic works end-to-end, not just in theory.)*
 
 **Lead/coordination (ongoing, not blocked on anything):**
 - [ ] Unblock Vignesh and Harish when they hit an interface question
@@ -175,21 +192,23 @@ hard dependency between people — everything else is parallel.
       with full docstrings and expected return shapes. Implement the
       bodies of these exact methods — don't rename or change signatures
       without telling Anto, since A4 is being built against them as-is.)*
-- [ ] **V2.** Design the Neo4j schema: nodes (`HSCode {code, description}`,
-      `Country {name, code}`, `CertificateRequirement {name, issuing_body}`,
-      `DocumentType {name}`, `RejectionReason {reason_code, description}`,
-      `Shipment {shipment_id, status}`, `Pattern {pattern_id, type, frequency, confidence}`)
-      and edges (`REQUIRES`, `CONTRADICTS`, `CAUSED_REJECTION`, `MATCHES`, `RESOLVED_BY`)
-- [ ] **V3.** Write `services/engine/app/seed/seed_data.py`: load the schema
-      above with 3 contradiction types (unit mismatch, HS code mismatch,
-      missing certificate) across a handful of shipments
+- [x] ~~**V2.** Design the Neo4j schema~~ *(done — 7 node labels, 7 uniqueness
+      constraints, canonical edges plus 2 additive structural edges
+      (`DECLARES_HS`, `DESTINED_FOR`) needed to filter patterns by HS/country
+      — approved, purely additive, in `graph/schema.py`)*
+- [x] ~~**V3.** Write `services/engine/app/seed/seed_data.py`~~ *(done — 3
+      contradiction types across 4 shipments, patterns PAT-001/002/014,
+      idempotent)*
 
 **🔓 No external dependency, but blocks Anto's A5:**
-- [ ] **V4.** Implement the real Cypher queries behind the 5 finalized
-      methods on `GraphClient` in `neo4j_client.py` (see V1 above — the
-      signatures and docstrings are already there, just fill in the
-      bodies). **When done, tell Anto directly** — this is what unblocks
-      his A5. Don't just push and assume he'll notice.
+- [x] ~~**V4.** Implement the real Cypher queries~~ *(done — but note for
+      next time: this was built against the placeholder interface from
+      before A4 existed, and diverged from what A4 actually called
+      (different method names/args, dataclasses vs dicts). Reconciled on
+      Anto's side in A5 — no changes needed on this file going forward
+      unless the interface itself changes again. Verified against a real
+      seeded Neo4j instance: pattern matching and frequency-reinforcement
+      both work correctly end-to-end.)*
 
 ---
 

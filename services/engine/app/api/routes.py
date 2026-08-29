@@ -19,6 +19,8 @@ router = APIRouter()
 class SimulateRequest(BaseModel):
     shipment_id: Optional[str] = Field("MSKU1234567", description="Container or shipment tracking number")
     documents: Dict[str, Any] = Field(default_factory=dict, description="Uploaded trade document payload")
+    country: Optional[str] = Field(None, description="Destination country code, e.g. 'DE'")
+    hs_code: Optional[str] = Field(None, description="Declared HS code, falls back to documents.commercial_invoice.hs_code")
 
 
 class RecordOutcomeRequest(BaseModel):
