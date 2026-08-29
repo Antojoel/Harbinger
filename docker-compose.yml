@@ -38,8 +38,13 @@ services:
       context: ./services/mcp-server
       dockerfile: Dockerfile
     container_name: harbinger-mcp-server
+    ports:
+      - "9000:9000" # MCP streamable-http endpoint at /mcp
     environment:
       - ENGINE_URL=http://engine:8000
+      - MCP_TRANSPORT=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=9000
     depends_on:
       - engine
 

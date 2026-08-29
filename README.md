@@ -84,7 +84,7 @@ That's it — one command brings up the graph database, the core engine, the MCP
 | 🖥️ Web App | http://localhost:3000 | The demo consumer app |
 | ⚙️ Engine REST API | http://localhost:8000 | Interactive docs at `/docs` (Swagger) |
 | 🧠 Neo4j Browser | http://localhost:7474 | Auth: `neo4j` / `password` — explore the immune memory graph directly |
-| 🔌 MCP Server | internal | Proxies MCP tool calls to the engine's REST API |
+| 🔌 MCP Server | http://localhost:9000/mcp | MCP endpoint (streamable-http); proxies tool calls to the engine's REST API |
 
 **Verify it's alive:**
 ```bash
@@ -100,7 +100,27 @@ curl http://localhost:8000/api/patterns
 | `GET` | `/api/graph` | Returns the current graph as nodes + edges JSON, for visualization |
 | `GET` | `/api/patterns` | Lists known failure patterns, optionally filtered by HS code / country |
 
-The MCP server exposes the same three operations as tools — `check_shipment_risk`, `record_outcome_tool`, `query_patterns_tool` — for any MCP-compatible AI agent.
+### 🔌 MCP server
+
+The MCP server exposes the same three operations as tools for any MCP-compatible AI agent:
+
+| Tool | Proxies to | Arguments |
+|---|---|---|
+| `check_shipment_risk` | `POST /api/simulate` | `shipment_id`, `documents`, optional `hs_code`, `country` |
+| `record_outcome_tool` | `POST /api/record-outcome` | `shipment_id`, `was_held`, optional `reason_code`, `detail` |
+| `query_patterns_tool` | `GET /api/patterns` | optional `hs_code`, `country` |
+
+**Networked (default in Docker Compose):** streamable-http at `http://localhost:9000/mcp`.
+
+**Local stdio (e.g. Claude Desktop / Claude Code):** run it directly and point the engine at your local instance —
+
+```bash
+cd services/mcp-server
+pip install -r requirements.txt
+ENGINE_URL=http://localhost:8000 MCP_TRANSPORT=stdio python server.py
+```
+
+Transport is chosen with `MCP_TRANSPORT` (`stdio` | `streamable-http` | `sse`); `MCP_HOST` / `MCP_PORT` configure the networked modes.
 
 ## 🗂️ Project Structure
 
