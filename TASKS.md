@@ -105,15 +105,24 @@ hard dependency between people — everything else is parallel.
 ## Anto — Lead + Backend
 
 **🔓 No dependency — start immediately:**
-- [ ] **A1.** Write the API contract above into `services/engine/app/api/schemas.py`
-      as Pydantic models (request/response for all 6 endpoints)
-- [ ] **A2.** Implement all 6 REST routes in `services/engine/app/api/routes.py`
+- [x] ~~**A1.** Write the API contract above into `services/engine/app/api/schemas.py`
+      as Pydantic models (request/response for all 6 endpoints)~~
+      *(done inline as Pydantic models in `routes.py` instead of a separate
+      `schemas.py` — functionally equivalent, all 6 endpoints covered)*
+- [x] ~~**A2.** Implement all 6 REST routes in `services/engine/app/api/routes.py`
       returning **hardcoded data matching the contract exactly** — no real
-      logic, just return the example JSON above (or close variants)
-- [ ] **A3. 🚨 COMMIT + PUSH NOW.** This is the commit Harish and (partly)
+      logic, just return the example JSON above (or close variants)~~
+      *(all 7 endpoints — the original 4 plus voice-query/create-payment-order/
+      verify-payment — verified live against a running instance, response
+      shapes corrected to match the contract exactly)*
+- [x] ~~**A3. 🚨 COMMIT + PUSH NOW.** This is the commit Harish and (partly)
       Vignesh are waiting on. Do not batch this with other work — push it
       the moment the stub routes return valid JSON, even before anything
-      else is done.
+      else is done.~~
+      *(pushed — commit `dfc1587`. Bonus fix: `main.py` imported
+      `graph/neo4j_client.py`, which didn't exist yet and would have
+      crashed the app on boot. Added a no-op placeholder so the stub runs
+      without Neo4j — Vignesh replaces its internals for real in V2/V4.)*
 
 **🔒 Depends on: verbal agreement with Vignesh on function signatures (5–10 min conversation, not a commit)**
 - [ ] **A4.** Implement real core engine in `services/engine/app/core/engine.py`:
