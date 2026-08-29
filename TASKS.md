@@ -6,6 +6,62 @@ run `docker-compose up` from the repo root to start.
 
 ---
 
+## ⏱️ Parallelization Plan — how everyone starts at the same time
+
+**The blocker, as assigned:** core engine needs the graph's query functions,
+REST needs the core engine, MCP needs REST, and the frontend needs REST too.
+Built strictly in that order, only one person is ever actually working —
+everyone else is waiting.
+
+**The fix — contract-first stubs.** Anto commits the API *shape* first,
+before any real logic exists: stub endpoints that return hardcoded fake
+JSON in the exact form the real thing will eventually return. Once that's
+pushed, everyone builds against the stub shape at the same time — nobody
+waits on anybody else's real implementation.
+
+### Step 0 (first ~30–45 min) — Anto commits first
+- [ ] Agree and write down the exact request/response JSON shape for
+      `/api/simulate`, `/api/record-outcome`, `/api/graph`, `/api/patterns`
+      (a short markdown block or Pydantic models is enough)
+- [ ] Implement all 4 REST routes returning **hardcoded stub data**
+      matching that shape — no real logic yet
+- [ ] Commit + push this stub immediately — this is the unblocking commit
+      everyone else is waiting on
+
+### After the stub is pushed — all 3 run in true parallel
+| Who | Works on, in parallel | Depends on |
+|---|---|---|
+| Vignesh | Real Neo4j schema, seed data, query functions | Nothing — starts immediately |
+| Harish | Full frontend (upload, checklist, graph viz, voice widget, pricing) against the stub API | Only the Step 0 contract, not real logic |
+| Anto | Real core engine logic, swapping stub responses for real ones as Vignesh's functions land | Vignesh's function *signatures* (agree verbally in the first 10 min — implementation can lag) |
+
+### What stays sequential no matter what
+1. **Anto's own chain** — core engine → REST (real) → MCP → Vertex AI →
+   Razorpay is one person's single thread. It can't be parallelized against
+   itself; reorder by demo priority instead, don't try to force it.
+2. **Vignesh → Anto hand-off** — the real graph must be wired into the core
+   engine before the stub is retired. Coordinate this directly, don't just
+   merge silently and hope it lines up.
+3. **The contract must not change** once Harish starts building against it —
+   if Anto needs to change a response shape mid-build, say so immediately.
+   That's the one thing that breaks the parallelism.
+
+### Git workflow — who commits first, and in what order
+1. **Anto commits first**: the Step 0 stub, straight to `main` (or a
+   `contract` branch merged in immediately). This is the commit that
+   unlocks everyone else — don't sit on it.
+2. Each person then works on their own branch: `anto/core-engine`,
+   `vignesh/graph`, `harish/frontend`. Small, frequent commits.
+3. Vignesh merges into Anto's branch (or opens a PR Anto reviews) once real
+   graph functions are ready; Anto swaps stub calls for real ones.
+4. Harish merges independently whenever ready — the frontend branch never
+   blocks on backend merges, because it was built against the stable
+   contract, not the backend's internals.
+5. Anto does the final integration merge to `main`, then runs the
+   end-to-end demo rehearsal (already in the Lead checklist below).
+
+---
+
 ## Anto — Lead + Backend: Core Engine, REST + MCP Adapters, Integrations
 *(services/engine/app/core, services/engine/app/api, services/mcp-server, services/engine/app/integrations)*
 
