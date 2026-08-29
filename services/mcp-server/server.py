@@ -1,112 +1,184 @@
 """
 Harbinger MCP Adapter Server
 ============================
-Exposes MCP tools (check_shipment_risk, record_outcome_tool, query_patterns_tool)
-which proxy requests via HTTP to the engine REST API service.
+Exposes the Harbinger engine as Model Context Protocol tools so an AI agent
+client (Claude, etc.) can predict customs holds and grow the immune-memory
+graph directly.
 
-Backend B Owner: Implement MCP protocol tool handlers using httpx or requests to call engine:8000.
+Each tool is a thin proxy over the engine's REST API (``services/engine``):
+
+    check_shipment_risk   -> POST /api/simulate
+    record_outcome_tool   -> POST /api/record-outcome
+    query_patterns_tool   -> GET  /api/patterns
+
+Transport is selected by ``MCP_TRANSPORT`` (``stdio`` for a local Claude
+Desktop / Claude Code config, ``streamable-http`` / ``sse`` for a networked
+service — see docker-compose). No engine logic lives here; this is adapter
+code only.
 """
 
-import os
-import sys
-import asyncio
+from __future__ import annotations
+
 import logging
+import os
+from typing import Any
+
 import httpx
-from typing import Dict, Any, Optional
+from mcp.server.fastmcp import FastMCP
 
-logger = logging.getLogger("mcp-server")
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("harbinger.mcp")
 
-ENGINE_URL = os.getenv("ENGINE_URL", "http://engine:8000")
+ENGINE_URL = os.getenv("ENGINE_URL", "http://engine:8000").rstrip("/")
+ENGINE_TIMEOUT = float(os.getenv("MCP_ENGINE_TIMEOUT", "15"))
+MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio")
+
+mcp = FastMCP(
+    "harbinger",
+    host=os.getenv("MCP_HOST", "0.0.0.0"),
+    port=int(os.getenv("MCP_PORT", "9000")),
+)
 
 
-# --- MCP Tool Stubs ---
+def _make_client() -> httpx.AsyncClient:
+    """HTTP client for engine calls. Separated so tests can inject a transport."""
+    return httpx.AsyncClient(timeout=ENGINE_TIMEOUT)
 
-async def check_shipment_risk(shipment_id: str, documents: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+async def _engine_request(
+    method: str,
+    path: str,
+    *,
+    json: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call the engine REST API and return its JSON.
+
+    Never raises: a transport failure or non-2xx response comes back as
+    ``{"error": ..., "detail": ...}`` so the calling agent gets a usable
+    answer instead of a dropped tool call.
     """
-    MCP Tool: check_shipment_risk
-    Calls the engine's POST /api/simulate endpoint via HTTP.
-    """
-    url = f"{ENGINE_URL}/api/simulate"
-    payload = {
-        "shipment_id": shipment_id,
-        "documents": documents or {}
-    }
-    logger.info(f"MCP Tool 'check_shipment_risk' calling {url} for shipment {shipment_id}")
-    
+    url = f"{ENGINE_URL}{path}"
+    logger.info("engine %s %s", method, path)
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=payload, timeout=10.0)
-            return resp.json()
-    except Exception as e:
-        logger.warning(f"Engine HTTP call failed ({e}), returning stub response")
+        async with _make_client() as client:
+            response = await client.request(method, url, json=json, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.error("engine %s %s -> HTTP %s", method, path, exc.response.status_code)
         return {
-            "shipment_id": shipment_id,
-            "risk_score": 0.75,
-            "reasons": ["HTTP engine connection pending, stub fallback response"],
-            "mcp_status": "stub_fallback"
+            "error": f"engine returned HTTP {exc.response.status_code}",
+            "detail": exc.response.text[:500],
         }
+    except httpx.HTTPError as exc:
+        logger.error("engine %s %s unreachable: %s", method, path, exc)
+        return {"error": "engine_unreachable", "detail": str(exc)}
+    except ValueError as exc:  # non-JSON body
+        logger.error("engine %s %s returned non-JSON: %s", method, path, exc)
+        return {"error": "engine_bad_response", "detail": str(exc)}
 
 
-async def record_outcome_tool(shipment_id: str, actual_outcome: Dict[str, Any]) -> Dict[str, Any]:
+@mcp.tool()
+async def check_shipment_risk(
+    shipment_id: str,
+    documents: dict[str, Any] | None = None,
+    hs_code: str | None = None,
+    country: str | None = None,
+) -> dict[str, Any]:
+    """Predict the customs hold risk for a shipment's draft documents.
+
+    Args:
+        shipment_id: Container / shipment tracking number, e.g. "MSKU1234567".
+        documents: The trade document payload — commercial_invoice, packing_list,
+            bill_of_lading, certificate_of_origin. Units and hs_code go inside
+            commercial_invoice.
+        hs_code: Declared HS code. Optional; falls back to
+            documents.commercial_invoice.hs_code.
+        country: Destination country code, e.g. "DE". Needed for
+            certificate-requirement checks.
+
+    Returns:
+        {"shipment_id", "risk_score" (0-1), "reasons": [{"code", "detail"}],
+         "matched_patterns": [pattern_id, ...]}
     """
-    MCP Tool: record_outcome_tool
-    Calls the engine's POST /api/record-outcome endpoint via HTTP.
-    """
-    url = f"{ENGINE_URL}/api/record-outcome"
-    payload = {
-        "shipment_id": shipment_id,
-        "actual_outcome": actual_outcome
-    }
-    logger.info(f"MCP Tool 'record_outcome_tool' calling {url} for shipment {shipment_id}")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=payload, timeout=10.0)
-            return resp.json()
-    except Exception as e:
-        logger.warning(f"Engine HTTP call failed ({e}), returning stub response")
-        return {
-            "shipment_id": shipment_id,
-            "status": "outcome_recorded_stub",
-            "mcp_status": "stub_fallback"
-        }
+    payload: dict[str, Any] = {"shipment_id": shipment_id, "documents": documents or {}}
+    if hs_code:
+        payload["hs_code"] = hs_code
+    if country:
+        payload["country"] = country
+    return await _engine_request("POST", "/api/simulate", json=payload)
 
 
-async def query_patterns_tool(hs_code: Optional[str] = None, country: Optional[str] = None) -> Dict[str, Any]:
+@mcp.tool()
+async def record_outcome_tool(
+    shipment_id: str,
+    was_held: bool,
+    reason_code: str | None = None,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """Record a shipment's real customs outcome so the graph learns from it.
+
+    When ``was_held`` is true and a ``reason_code`` is supplied, the
+    immune-memory graph reinforces (or creates) that failure pattern, so
+    future simulations catch it faster.
+
+    Args:
+        shipment_id: The shipment the outcome belongs to.
+        was_held: True if customs actually held the shipment.
+        reason_code: Failure reason, e.g. "MISSING_CERTIFICATE",
+            "UNIT_MISMATCH", "HS_CODE_DEPRECATED".
+        detail: Optional human-readable note stored on the pattern.
+
+    Returns:
+        {"status": "recorded", "pattern_updated": bool,
+         "new_nodes": [...], "new_edges": [...]}
     """
-    MCP Tool: query_patterns_tool
-    Calls the engine's GET /api/patterns endpoint via HTTP.
+    actual_outcome: dict[str, Any] = {"was_held": was_held}
+    if reason_code:
+        actual_outcome["reason_code"] = reason_code
+    if detail:
+        actual_outcome["detail"] = detail
+    return await _engine_request(
+        "POST",
+        "/api/record-outcome",
+        json={"shipment_id": shipment_id, "actual_outcome": actual_outcome},
+    )
+
+
+@mcp.tool()
+async def query_patterns_tool(
+    hs_code: str | None = None,
+    country: str | None = None,
+) -> dict[str, Any]:
+    """List the customs-rejection patterns the graph has learned.
+
+    Args:
+        hs_code: Filter to patterns seen on shipments declaring this HS code.
+        country: Filter to patterns seen on shipments to this destination.
+
+    Returns:
+        {"patterns": [{"pattern_id", "type", "frequency", "confidence", ...}]}
     """
-    url = f"{ENGINE_URL}/api/patterns"
-    params = {}
+    params: dict[str, Any] = {}
     if hs_code:
         params["hs_code"] = hs_code
     if country:
         params["country"] = country
-
-    logger.info(f"MCP Tool 'query_patterns_tool' calling {url}")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params, timeout=10.0)
-            return resp.json()
-    except Exception as e:
-        logger.warning(f"Engine HTTP call failed ({e}), returning stub response")
-        return {
-            "patterns": [
-                {"pattern_id": "PAT-001", "type": "unit_mismatch", "frequency": 14}
-            ],
-            "mcp_status": "stub_fallback"
-        }
+    return await _engine_request("GET", "/api/patterns", params=params or None)
 
 
-async def main():
-    logger.info(f"Starting Harbinger MCP Adapter Server (Engine Target: {ENGINE_URL})...")
-    # TODO (Backend B): Initialize official mcp.server / FastMCP instance exposing the 3 tools
-    while True:
-        await asyncio.sleep(3600)
+def main() -> None:
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    )
+    logger.info(
+        "Harbinger MCP server starting (engine=%s, transport=%s)",
+        ENGINE_URL,
+        MCP_TRANSPORT,
+    )
+    mcp.run(transport=MCP_TRANSPORT)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

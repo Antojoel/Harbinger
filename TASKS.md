@@ -134,11 +134,17 @@ hard dependency between people — everything else is parallel.
       graph_client methods, not a bug. Ready for A5 the moment V4 lands.)*
 
 **🔒 Depends on: A3 (stub live)**
-- [ ] **A6.** Build the MCP server in `services/mcp-server/server.py`:
+- [x] ~~**A6.** Build the MCP server in `services/mcp-server/server.py`:
       3 tools (`check_shipment_risk`, `record_outcome_tool`,
-      `query_patterns_tool`), each calling the REST endpoints via `httpx`.
-      This only needs A3, not A4/A5 — build it right after the stub, don't
-      wait for real logic.
+      `query_patterns_tool`), each calling the REST endpoints via `httpx`.~~
+      *(reassigned to Vignesh once V1–V4 landed, to parallelize backend work.
+      Done on branch `vignesh/a6-mcp-server`: real `FastMCP` server, 3 tools
+      proxying the REST API, `MCP_TRANSPORT` env picks `stdio` /
+      `streamable-http` / `sse`, 10 unit tests. Verified end-to-end with a
+      real MCP client through the server to the engine to a seeded Neo4j —
+      `record_outcome_tool` reinforced PAT-001 14→15. Also bumps the
+      `mcp-server` service in `docker-compose.yml` to publish :9000 and run
+      streamable-http. Anto to review/merge the branch.)*
 - [ ] **A7.** Vertex AI voice pipeline: implement `/api/voice-query` for
       real (STT the incoming audio, call `simulate()` or `query_patterns()`
       internally, TTS the response). Can be built and tested against the

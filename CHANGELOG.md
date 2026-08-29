@@ -27,6 +27,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `requirements-dev.txt` and `pytest.ini` for the engine service.
 - Structured logging in the engine: `logging.basicConfig` in `main.py` and startup/shutdown log lines, so the graph layer's connection and degraded-mode messages surface under uvicorn.
 - Test and tooling entries in `.gitignore` (`.pytest_cache/`, `.coverage`, `htmlcov/`, `.ruff_cache/`).
+- Real MCP adapter server (Vignesh, A6): `services/mcp-server/server.py` rewritten from a sleep-forever stub to a working `FastMCP` server (`mcp` SDK, pinned `>=1.9,<2`).
+  - Three tools, each a thin proxy over the engine REST API: `check_shipment_risk` → `POST /api/simulate` (accepts `shipment_id`, `documents`, and optional `hs_code` / `country`), `record_outcome_tool` → `POST /api/record-outcome` (assembles `actual_outcome` from `was_held` / `reason_code` / `detail`), `query_patterns_tool` → `GET /api/patterns` (optional `hs_code` / `country` filters).
+  - Shared `_engine_request()` helper that never raises: a non-2xx response or an unreachable engine comes back as `{"error", "detail"}` so a tool call is never silently dropped.
+  - Transport selected by `MCP_TRANSPORT`: `stdio` (default, for a local Claude Desktop / Claude Code config) or `streamable-http` / `sse` (networked, for the Docker Compose service); `MCP_HOST` / `MCP_PORT` configurable.
+  - `services/mcp-server/tests/` — 10 unit tests using `httpx.MockTransport` (payload assembly, filter passing, error handling, tool registration); lint and format clean.
+  - Verified end to end with a real MCP client through the server to the engine to a seeded Neo4j: `check_shipment_risk` matched stored patterns `PAT-001` + `PAT-014` (risk 0.87) and `record_outcome_tool` reinforced `PAT-001` (frequency 14 → 15, confidence 0.82 → 0.83).
+- `docker-compose.yml`: the `mcp-server` service now publishes port `9000` and runs the `streamable-http` transport so the MCP endpoint is reachable at `http://localhost:9000/mcp`; `services/mcp-server/Dockerfile` exposes `9000`.
 
 ### Fixed
 - `main.py` imported a `graph.neo4j_client` module that didn't exist, which would have crashed the app on startup.
