@@ -10,12 +10,19 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 export default function Login() {
   const { loginWithGoogle, loginAsGuest, googleConfigured } = useAuth();
   const buttonRef = useRef(null);
+  const initialized = useRef(false);
   const [busyGuest, setBusyGuest] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
   const [googleUnavailable, setGoogleUnavailable] = useState(false);
 
   useEffect(() => {
     if (!googleConfigured || !GOOGLE_CLIENT_ID) return;
+    // Google's renderButton() writes directly into buttonRef's DOM node,
+    // outside React's control. Only ever do that once - calling it twice
+    // (e.g. React StrictMode's dev double-invoke) corrupts the node React
+    // thinks it owns and crashes the whole tree on the next reconcile.
+    if (initialized.current) return;
+    initialized.current = true;
 
     let cancelled = false;
     let attempts = 0;
@@ -69,6 +76,8 @@ export default function Login() {
     }
   };
 
+  const showGoogleSlot = googleConfigured && GOOGLE_CLIENT_ID && !googleUnavailable;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm p-8 text-center">
@@ -81,17 +90,27 @@ export default function Login() {
         </p>
 
         <div className="flex flex-col items-center gap-3">
-          {googleConfigured && GOOGLE_CLIENT_ID && !googleUnavailable ? (
-            <div ref={buttonRef} className="flex justify-center">
-              {!googleReady && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
-            </div>
-          ) : googleUnavailable ? (
+          {/* This wrapper's ref'd child is NEVER given React children of its
+              own - Google's renderButton() fully owns that node's DOM once
+              it fires. The spinner is a sibling overlay, so React never has
+              to reconcile inside a node an external script has rewritten. */}
+          <div className="relative flex min-h-[40px] w-full items-center justify-center" style={{ display: showGoogleSlot ? "flex" : "none" }}>
+            <div ref={buttonRef} />
+            {!googleReady && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          {!showGoogleSlot && googleUnavailable && (
             <p className="text-xs text-muted-foreground">
               Google sign-in didn't load — likely blocked by a browser privacy
               shield or ad blocker. Use guest login below, or allow scripts
               from accounts.google.com and reload.
             </p>
-          ) : (
+          )}
+          {!showGoogleSlot && !googleUnavailable && (
             <p className="text-xs text-muted-foreground">
               Google sign-in isn't configured for this deployment.
             </p>
