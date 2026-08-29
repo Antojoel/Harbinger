@@ -21,6 +21,7 @@ from typing import Dict, Any, List, Optional
 
 from core import engine, shipment_store
 from api import ui_adapter
+from integrations import razorpay_client
 
 router = APIRouter()
 
@@ -185,21 +186,20 @@ async def voice_query_endpoint(payload: VoiceQueryRequest):
     }
 
 
-@router.post("/create-payment-order", summary="Create a Razorpay order (stub)")
+@router.post("/create-payment-order", summary="Create a real Razorpay test-mode order")
 async def create_payment_order_endpoint(payload: CreatePaymentOrderRequest):
-    """POST /create-payment-order: STUB, pending real Razorpay keys (A8)."""
-    return {
-        "order_id": "order_stub_abc123",
-        "amount": 3500,
-        "currency": "INR",
-        "razorpay_key_id": "rzp_test_stub"
-    }
+    """POST /create-payment-order: creates a real Razorpay order in test
+    mode. Falls back to {awaiting_keys: True} if RAZORPAY_KEY/SECRET aren't
+    set, so the frontend degrades gracefully rather than crashing."""
+    return razorpay_client.create_order(payload.plan_type, payload.shipment_id)
 
 
-@router.post("/verify-payment", summary="Verify a Razorpay payment signature (stub)")
+@router.post("/verify-payment", summary="Verify a Razorpay payment signature")
 async def verify_payment_endpoint(payload: VerifyPaymentRequest):
-    """POST /verify-payment: STUB, pending real Razorpay keys (A8)."""
-    return {"status": "success"}
+    """POST /verify-payment: verifies the HMAC signature server-side —
+    never trust a client-reported success on its own."""
+    ok = razorpay_client.verify_payment(payload.order_id, payload.payment_id, payload.signature)
+    return {"status": "success" if ok else "failed"}
 
 
 # =========================================================================
@@ -364,21 +364,25 @@ async def pricing_endpoint():
             },
         ],
         "avg_demurrage_per_day_inr": 5500,
-        "razorpay_ready": False,
+        "razorpay_ready": razorpay_client.is_configured(),
         "note": "Fee shown against average demurrage avoided per prevented hold.",
     }
 
 
-@router.post("/payments/order", summary="Create a checkout order for a pricing tier (UI adapter)")
+@router.post("/payments/order", summary="Create a real Razorpay test-mode order for a pricing tier (UI adapter)")
 async def payments_order_endpoint(payload: PaymentOrderUiRequest):
-    return {
-        "awaiting_keys": True,
-        "message": "Razorpay keys not yet configured — add RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET to enable live checkout.",
-    }
+    return razorpay_client.create_order(payload.tier_id, payload.shipment_id)
 
 
 @router.post("/payments/verify", summary="Verify a completed checkout (UI adapter)")
 async def payments_verify_endpoint(payload: Dict[str, Any]):
+    ok = razorpay_client.verify_payment(
+        payload.get("razorpay_order_id", ""),
+        payload.get("razorpay_payment_id", ""),
+        payload.get("razorpay_signature", ""),
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="Payment signature verification failed")
     return {"status": "success"}
 
 

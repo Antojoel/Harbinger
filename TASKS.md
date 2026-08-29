@@ -150,10 +150,20 @@ hard dependency between people — everything else is parallel.
       `gpt-5-nano` text-only — no `tts-1`/`whisper-1`/any audio model
       available on it (verified directly against `/v1/models`); Vertex AI
       is also not usable right now. Vignesh has a local-model workaround.
-- [ ] **A8.** Razorpay integration: implement `/api/create-payment-order`
-      and `/api/verify-payment` for real. Zero dependency on the engine
-      logic at all — do this whenever, even first, if you want a quick win
-      before tackling A4.
+- [x] ~~**A8.** Razorpay integration: implement `/api/create-payment-order`
+      and `/api/verify-payment` for real.~~
+      *(done — real test-mode Razorpay orders via `services/engine/app/integrations/razorpay_client.py`,
+      wired into both the locked contract endpoints and the UI-adapter
+      `/api/payments/*` ones. Signature verification is real HMAC via the
+      SDK, not a rubber stamp — verified it correctly REJECTS a fake
+      signature (400/"failed"), not just that it accepts a real one.
+      Verified live against Razorpay's actual test-mode API: real order
+      IDs came back (`order_TVh...`), `/api/pricing`'s `razorpay_ready`
+      now reflects whether keys are actually configured. Still degrades
+      gracefully to `{"awaiting_keys": true}` for anyone without
+      RAZORPAY_KEY/SECRET set — see `.env.example`. Credentials come from
+      `.env` (gitignored) via docker-compose `${RAZORPAY_KEY}` substitution,
+      never hardcoded.)*
 
 **🔒 Depends on: A4 done + V4 done (Vignesh's real graph functions)**
 - [x] ~~**A5.** Swap the stub graph calls inside `simulate()`/`record_outcome()`

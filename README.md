@@ -66,15 +66,21 @@ The graph isn't just storage — it's rendered live in the web app. Confirming a
 | REST + MCP adapters | FastAPI + `httpx`, MCP server |
 | Frontend | React (Vite), Tailwind CSS + shadcn/ui, `reactflow` for live graph viz, `recharts` for the pricing page |
 | Orchestration | Docker Compose |
-| Voice interface | Vertex AI (speech-to-text / text-to-speech) |
-| Payments | Razorpay |
+| Voice interface | Browser Web Speech API (client-side STT/TTS) for the dashboard's voice widget; local-model text pipeline (Vignesh, V5) for the locked `/api/voice-query` contract |
+| Payments | Razorpay, live test-mode integration |
 
 ## 🚀 Quickstart
 
 **Prerequisites:** Docker + Docker Compose installed.
 
 ```bash
+cp .env.example .env   # fill in RAZORPAY_KEY/RAZORPAY_SECRET for live checkout — optional, degrades gracefully without them
 docker-compose up --build
+```
+
+**Seed the graph** (not automatic — without this, certificate-requirement lookups return nothing and the demo shipments look artificially clean):
+```bash
+docker exec -it harbinger-engine python -m seed.seed_data
 ```
 
 That's it — one command brings up the graph database, the core engine, the MCP adapter, and the web app together.
