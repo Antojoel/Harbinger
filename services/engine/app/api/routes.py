@@ -26,6 +26,22 @@ class RecordOutcomeRequest(BaseModel):
     actual_outcome: Dict[str, Any] = Field(..., description="Customs outcome details (passed, hold, fee_amount)")
 
 
+class VoiceQueryRequest(BaseModel):
+    shipment_id: str = Field(..., description="Shipment tracking number")
+    audio_base64: str = Field(..., description="Recorded driver/officer audio, base64-encoded")
+
+
+class CreatePaymentOrderRequest(BaseModel):
+    plan_type: str = Field(..., description="'per_shipment' or 'subscription'")
+    shipment_id: Optional[str] = Field(None, description="Shipment this order protects, if per-shipment")
+
+
+class VerifyPaymentRequest(BaseModel):
+    order_id: str
+    payment_id: str
+    signature: str
+
+
 @router.post("/simulate", summary="Simulate customs clearance and detect risk")
 async def simulate_endpoint(payload: SimulateRequest):
     """
@@ -72,6 +88,49 @@ async def query_patterns_endpoint(hs_code: Optional[str] = Query(None), country:
             filters["hs_code"] = hs_code
         if country:
             filters["country"] = country
-        return engine.query_patterns(filters)
+        return {"patterns": engine.query_patterns(filters)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Stub endpoints below: contract-only, real logic is Backend C's (A7/A8) job ---
+
+@router.post("/voice-query", summary="Voice-driven shipment risk query (Vertex AI STT/TTS)")
+async def voice_query_endpoint(payload: VoiceQueryRequest):
+    """
+    POST /voice-query: STUB. Real implementation (A7) will run Vertex AI
+    speech-to-text on the audio, resolve the shipment's risk via
+    engine.query_patterns()/engine.simulate(), then Vertex AI text-to-speech
+    the response. Returns hardcoded data matching the agreed contract shape
+    so the frontend (H4) can be built against it now.
+    """
+    return {
+        "transcript": "What's this shipment's hold risk?",
+        "response_text": "73% likely held: missing Certificate of Origin.",
+        "response_audio_base64": "STUB_AUDIO_BASE64_PLACEHOLDER"
+    }
+
+
+@router.post("/create-payment-order", summary="Create a Razorpay order (stub)")
+async def create_payment_order_endpoint(payload: CreatePaymentOrderRequest):
+    """
+    POST /create-payment-order: STUB. Real implementation (A8) will call the
+    Razorpay Orders API. Returns hardcoded data matching the agreed contract
+    shape so the frontend (H5) can be built against it now.
+    """
+    return {
+        "order_id": "order_stub_abc123",
+        "amount": 3500,
+        "currency": "INR",
+        "razorpay_key_id": "rzp_test_stub"
+    }
+
+
+@router.post("/verify-payment", summary="Verify a Razorpay payment signature (stub)")
+async def verify_payment_endpoint(payload: VerifyPaymentRequest):
+    """
+    POST /verify-payment: STUB. Real implementation (A8) will verify the
+    Razorpay payment signature server-side. Always returns success for now
+    so the frontend (H5) checkout flow can be built end-to-end.
+    """
+    return {"status": "success"}

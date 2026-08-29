@@ -1,59 +1,44 @@
 """
-Neo4j Graph Database Client Stub
-================================
-Provides database driver initialization, session management, and sample Cypher query helpers.
+Neo4j Graph Client
+==================
+PLACEHOLDER so the FastAPI app can boot without a running Neo4j instance
+while the rest of the team builds against the stub API. Vignesh (V2/V4)
+owns this file for real: the actual schema, seed data, and Cypher query
+functions Anto's core engine (services/engine/app/core/engine.py) will
+call into.
 
-Backend A Owner: Implement driver connection pooling and Cypher graph queries here.
+Do not remove connect()/close() — main.py calls them on startup/shutdown.
+Keep them no-ops (or wrap in try/except) until a real Neo4j connection is
+wired up, so the stub API keeps working for Harish regardless of whether
+Neo4j is up yet.
 """
 
 import os
 import logging
-from typing import Dict, Any, List, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("neo4j_client")
 
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
 
 
-class Neo4jClient:
+class GraphClient:
     def __init__(self):
-        self.uri = NEO4J_URI
-        self.user = NEO4J_USER
-        self.password = NEO4J_PASSWORD
-        self._driver = None
+        self.driver = None
 
     def connect(self):
-        """
-        Initializes the official Neo4j Python Driver connection pool.
-        """
-        # TODO (Backend A): Initialize neo4j.GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-        logger.info(f"Stub: Initializing Neo4j driver connection to {self.uri}")
+        """TODO (Vignesh, V4): open a real neo4j.GraphDatabase.driver connection."""
+        logger.info("GraphClient.connect() — placeholder, not yet connected to Neo4j")
 
     def close(self):
-        """
-        Closes the Neo4j driver connection pool.
-        """
-        if self._driver:
-            # TODO (Backend A): self._driver.close()
-            pass
+        """TODO (Vignesh, V4): close the real driver connection."""
+        if self.driver:
+            self.driver.close()
 
-    def run_cypher(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """
-        Placeholder Cypher execution helper.
-
-        Args:
-            query (str): Cypher query string.
-            parameters (dict, optional): Cypher query parameters.
-
-        Returns:
-            list[dict]: Records returned from Neo4j.
-        """
-        # TODO (Backend A): Execute session.run(query, parameters) and return records as dicts
-        logger.info(f"Stub Cypher query called: {query}")
-        return []
+    # TODO (Vignesh, V1/V4): implement the agreed query functions here, e.g.
+    # def find_matching_patterns(self, hs_code: str, country: str, documents: dict) -> list: ...
+    # def record_pattern(self, rejection_reason: str, shipment_context: dict) -> dict: ...
 
 
-# Singleton client instance
-graph_client = Neo4jClient()
+graph_client = GraphClient()

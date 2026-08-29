@@ -30,13 +30,11 @@ def simulate(shipment_docs: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "shipment_id": shipment_docs.get("shipment_id", "MSKU1234567"),
         "risk_score": 0.75,
-        "status": "attention",
         "reasons": [
-            "TODO: Unit mismatch between Commercial Invoice (500) and Packing List (480)",
-            "TODO: Deprecated HTS code detected"
+            {"code": "UNIT_MISMATCH", "detail": "Unit mismatch between Commercial Invoice (500) and Packing List (480)"},
+            {"code": "DEPRECATED_HS_CODE", "detail": "Deprecated HTS code detected"}
         ],
-        "matched_patterns": ["PAT-001", "PAT-002"],
-        "message": "Stub response from simulate(). Backend A to implement full graph logic."
+        "matched_patterns": ["PAT-001", "PAT-002"]
     }
 
 
@@ -58,11 +56,10 @@ def record_outcome(shipment_id: str, actual_outcome: Dict[str, Any]) -> Dict[str
     # 2. Create or increment weight on Pattern node (RESOLVED_BY, CAUSED_REJECTION edges).
     # 3. Return updated graph metrics.
     return {
-        "shipment_id": shipment_id,
-        "status": "outcome_recorded",
-        "pattern_id": "PAT-NEW-001",
-        "memory_reinforced": True,
-        "message": "Stub response from record_outcome(). Backend A to implement immune memory creation in Neo4j."
+        "status": "recorded",
+        "pattern_updated": True,
+        "new_nodes": ["PAT-NEW-001"],
+        "new_edges": [{"from": "PAT-NEW-001", "to": actual_outcome.get("reason_code", "UNKNOWN"), "type": "CAUSED_REJECTION"}]
     }
 
 
@@ -119,11 +116,11 @@ def graph_snapshot() -> Dict[str, Any]:
             {"id": "pattern_1", "label": "Unit Count Mismatch", "type": "Pattern"}
         ],
         "edges": [
-            {"source": "shipment_1", "target": "doc_inv", "label": "CONTAINS"},
-            {"source": "shipment_1", "target": "doc_pl", "label": "CONTAINS"},
-            {"source": "shipment_1", "target": "hs_1", "label": "USES_HS"},
-            {"source": "doc_inv", "target": "doc_pl", "label": "CONTRADICTS"},
-            {"source": "shipment_1", "target": "pattern_1", "label": "MATCHES"},
-            {"source": "shipment_1", "target": "country_us", "label": "DESTINATION"}
+            {"from": "shipment_1", "to": "doc_inv", "type": "CONTAINS"},
+            {"from": "shipment_1", "to": "doc_pl", "type": "CONTAINS"},
+            {"from": "shipment_1", "to": "hs_1", "type": "USES_HS"},
+            {"from": "doc_inv", "to": "doc_pl", "type": "CONTRADICTS"},
+            {"from": "shipment_1", "to": "pattern_1", "type": "MATCHES"},
+            {"from": "shipment_1", "to": "country_us", "type": "DESTINATION"}
         ]
     }

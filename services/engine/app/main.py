@@ -40,7 +40,10 @@ async def root_healthcheck():
     return {
         "service": "Harbinger Core Engine",
         "status": "healthy",
-        "endpoints": ["/simulate", "/record-outcome", "/graph", "/patterns"]
+        "endpoints": [
+            "/simulate", "/record-outcome", "/graph", "/patterns",
+            "/voice-query", "/create-payment-order", "/verify-payment"
+        ]
     }
 
 
