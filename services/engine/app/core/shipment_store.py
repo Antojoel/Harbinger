@@ -160,6 +160,50 @@ def _seed() -> None:
 _seed()
 
 
+def add_shipment(
+    *,
+    shipment_id: str,
+    importer_name: str,
+    exporter: str,
+    hs_code: str,
+    country: str,
+    goods_desc: str,
+    pol: str,
+    pod: str,
+    invoice_units: int,
+    packing_units: int,
+    invoice_hs_code: Optional[str] = None,
+    has_certificate: bool = True,
+    demurrage_per_day_inr: int = 5000,
+) -> Dict[str, Any]:
+    """Add a user-created shipment to the catalog (status starts "Draft").
+
+    Reuses the exact same `_make()` shape as the seeded demo shipments, so
+    a user-created shipment flows through Simulate/Record Outcome/etc.
+    identically to the seeded ones — there's nothing "fake" about it once
+    it's in here; the real engine treats it the same as MSKU1234567.
+    """
+    shipment = _make(
+        shipment_id,
+        shipment_id,
+        importer_name,
+        exporter,
+        hs_code,
+        country,
+        goods_desc,
+        pol,
+        pod,
+        invoice_units,
+        packing_units,
+        invoice_hs_code=invoice_hs_code,
+        has_certificate=has_certificate,
+        demurrage_per_day_inr=demurrage_per_day_inr,
+        status="Draft",
+    )
+    _SHIPMENTS[shipment_id] = shipment
+    return copy.deepcopy(shipment)
+
+
 def list_shipments() -> List[Dict[str, Any]]:
     return [copy.deepcopy(s) for s in _SHIPMENTS.values()]
 

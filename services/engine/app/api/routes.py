@@ -19,6 +19,7 @@ import os
 import time
 import datetime
 import logging
+import uuid
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Header
 from pydantic import BaseModel, Field
@@ -71,6 +72,24 @@ class VerifyPaymentRequest(BaseModel):
     order_id: str
     payment_id: str
     signature: str
+
+
+class CreateShipmentRequest(BaseModel):
+    shipment_id: Optional[str] = Field(None, description="Auto-generated if omitted")
+    importer_name: str = "Unknown Importer"
+    exporter: str = "Unknown Exporter"
+    hs_code: str = Field(..., description="Declared HS code, e.g. '8471.30'")
+    country: str = Field(..., description="Destination country code, e.g. 'DE'")
+    goods_desc: str = ""
+    pol: str = ""
+    pod: str = ""
+    invoice_units: int = Field(..., description="Commercial invoice unit count")
+    packing_units: int = Field(..., description="Packing list unit count")
+    invoice_hs_code: Optional[str] = Field(
+        None, description="Set only to intentionally trigger an HS-code mismatch"
+    )
+    has_certificate: bool = True
+    demurrage_per_day_inr: int = 5000
 
 
 class ApproveFixRequest(BaseModel):
@@ -284,6 +303,40 @@ async def stats_endpoint():
         "cost_avoided_inr": totals["cost_avoided_inr"],
         "outcomes_recorded": totals["outcomes_recorded"],
     }
+
+
+@router.post("/shipments", summary="Add a real shipment to the dashboard catalog and simulate it (UI adapter)")
+async def create_shipment_endpoint(payload: CreateShipmentRequest):
+    """POST /shipments: adds a genuinely new shipment (not seeded demo data)
+    to the dashboard's catalog, then immediately runs it through the real
+    /simulate engine — same code path as clicking Simulate on any seeded
+    shipment. Use an hs_code/country combo Vignesh actually seeded
+    certificate rules for (8471.30/DE or 8504.41/DE — see
+    services/engine/app/seed/seed_data.py) to see a real missing-certificate
+    check fire; other combos still run for real, just with no certificate
+    requirement on record to check against.
+    """
+    shipment_id = payload.shipment_id or f"shp-{uuid.uuid4().hex[:8]}"
+    if shipment_store.get_shipment(shipment_id):
+        raise HTTPException(status_code=409, detail=f"Shipment '{shipment_id}' already exists")
+
+    shipment_store.add_shipment(
+        shipment_id=shipment_id,
+        importer_name=payload.importer_name,
+        exporter=payload.exporter,
+        hs_code=payload.hs_code,
+        country=payload.country,
+        goods_desc=payload.goods_desc,
+        pol=payload.pol,
+        pod=payload.pod,
+        invoice_units=payload.invoice_units,
+        packing_units=payload.packing_units,
+        invoice_hs_code=payload.invoice_hs_code,
+        has_certificate=payload.has_certificate,
+        demurrage_per_day_inr=payload.demurrage_per_day_inr,
+    )
+    shipment = _ensure_simulated(shipment_store.get_shipment(shipment_id))
+    return _dashboard_row(shipment)
 
 
 @router.get("/shipments", summary="List shipments for the dashboard (UI adapter)")

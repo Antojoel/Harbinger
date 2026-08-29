@@ -11,7 +11,141 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { TrendingDown, AlertTriangle, Gauge, Boxes, ChevronRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger, DialogDescription,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { TrendingDown, AlertTriangle, Gauge, Boxes, ChevronRight, Plus } from "lucide-react";
+
+const EMPTY_SHIPMENT_FORM = {
+  shipment_id: "",
+  importer_name: "",
+  exporter: "",
+  hs_code: "8471.30",
+  country: "DE",
+  goods_desc: "",
+  pol: "",
+  pod: "",
+  invoice_units: "",
+  packing_units: "",
+  has_certificate: true,
+};
+
+function AddShipmentDialog({ open, onOpenChange, onCreated }) {
+  const [form, setForm] = useState(EMPTY_SHIPMENT_FORM);
+  const [busy, setBusy] = useState(false);
+  const set = (field) => (e) =>
+    setForm((f) => ({ ...f, [field]: e.target ? e.target.value : e }));
+
+  const submit = async () => {
+    if (!form.hs_code || !form.country || !form.invoice_units || !form.packing_units) {
+      toast.error("HS code, country, and both unit counts are required");
+      return;
+    }
+    setBusy(true);
+    try {
+      const created = await api.createShipment({
+        shipment_id: form.shipment_id || undefined,
+        importer_name: form.importer_name || "Unknown Importer",
+        exporter: form.exporter || "Unknown Exporter",
+        hs_code: form.hs_code,
+        country: form.country,
+        goods_desc: form.goods_desc,
+        pol: form.pol,
+        pod: form.pod,
+        invoice_units: Number(form.invoice_units),
+        packing_units: Number(form.packing_units),
+        has_certificate: form.has_certificate,
+      });
+      toast.success(`${created.id} created — ${created.hold_probability}% hold risk (${created.risk_band}).`);
+      setForm(EMPTY_SHIPMENT_FORM);
+      onOpenChange(false);
+      onCreated(created.id);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not create shipment");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add a real shipment</DialogTitle>
+          <DialogDescription>
+            This runs through the actual risk engine against the real immune-memory
+            graph — not canned demo data. Use HS code <code>8471.30</code> or{" "}
+            <code>8504.41</code> with country <code>DE</code> to see a real
+            missing-certificate check fire; other combos still simulate for real,
+            just with no certificate requirement on record to check against.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 py-2 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Shipment ID (optional, auto-generated if blank)</Label>
+            <Input value={form.shipment_id} onChange={set("shipment_id")} placeholder="e.g. MYCARGO-001" />
+          </div>
+          <div>
+            <Label className="text-xs">Importer</Label>
+            <Input value={form.importer_name} onChange={set("importer_name")} />
+          </div>
+          <div>
+            <Label className="text-xs">Exporter</Label>
+            <Input value={form.exporter} onChange={set("exporter")} />
+          </div>
+          <div>
+            <Label className="text-xs">HS code *</Label>
+            <Input value={form.hs_code} onChange={set("hs_code")} placeholder="8471.30" />
+          </div>
+          <div>
+            <Label className="text-xs">Destination country *</Label>
+            <Input value={form.country} onChange={set("country")} placeholder="DE" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Goods description</Label>
+            <Input value={form.goods_desc} onChange={set("goods_desc")} placeholder="Laptop computers, 14-inch" />
+          </div>
+          <div>
+            <Label className="text-xs">Port of loading</Label>
+            <Input value={form.pol} onChange={set("pol")} placeholder="CNSHA" />
+          </div>
+          <div>
+            <Label className="text-xs">Port of discharge</Label>
+            <Input value={form.pod} onChange={set("pod")} placeholder="DEHAM" />
+          </div>
+          <div>
+            <Label className="text-xs">Invoice units *</Label>
+            <Input type="number" value={form.invoice_units} onChange={set("invoice_units")} />
+          </div>
+          <div>
+            <Label className="text-xs">Packing list units *</Label>
+            <Input type="number" value={form.packing_units} onChange={set("packing_units")} />
+          </div>
+          <div className="flex items-center gap-2 sm:col-span-2">
+            <Checkbox
+              id="has_certificate"
+              checked={form.has_certificate}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, has_certificate: !!v }))}
+            />
+            <Label htmlFor="has_certificate" className="text-xs font-normal">
+              Certificate of Origin attached
+            </Label>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+          <Button onClick={submit} disabled={busy}>{busy ? "Simulating…" : "Create & simulate"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const Stat = ({ icon: Icon, label, value, sub, tint }) => (
   <Card className="p-4">
@@ -29,6 +163,7 @@ export default function Dashboard() {
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState("all");
   const [risk, setRisk] = useState("all");
+  const [addOpen, setAddOpen] = useState(false);
 
   const load = async () => {
     const [s, list] = await Promise.all([api.stats(), api.shipments({ status, risk })]);
@@ -55,7 +190,16 @@ export default function Dashboard() {
             Import containers, priced by the hour they might stall. <MockedBadge />
           </p>
         </div>
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" /> Add shipment
+        </Button>
       </div>
+
+      <AddShipmentDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onCreated={(id) => navigate(`/shipment/${id}`)}
+      />
 
       {/* impact strip */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
