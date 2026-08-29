@@ -10,7 +10,7 @@ from api.routes import router as api_router
 from graph.neo4j_client import graph_client
 
 app = FastAPI(
-    title="ClearanceGuard Core Engine API",
+    title="Harbinger Core Engine API",
     description="Customs Risk Simulation & Graph Memory Engine",
     version="0.1.0",
 )
@@ -38,7 +38,7 @@ async def shutdown_event():
 @app.get("/")
 async def root_healthcheck():
     return {
-        "service": "ClearanceGuard Core Engine",
+        "service": "Harbinger Core Engine",
         "status": "healthy",
         "endpoints": ["/simulate", "/record-outcome", "/graph", "/patterns"]
     }

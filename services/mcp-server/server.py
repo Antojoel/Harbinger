@@ -1,6 +1,6 @@
 """
-ClearanceGuard MCP Adapter Server
-=================================
+Harbinger MCP Adapter Server
+============================
 Exposes MCP tools (check_shipment_risk, record_outcome_tool, query_patterns_tool)
 which proxy requests via HTTP to the engine REST API service.
 
@@ -102,7 +102,7 @@ async def query_patterns_tool(hs_code: Optional[str] = None, country: Optional[s
 
 
 async def main():
-    logger.info(f"Starting ClearanceGuard MCP Adapter Server (Engine Target: {ENGINE_URL})...")
+    logger.info(f"Starting Harbinger MCP Adapter Server (Engine Target: {ENGINE_URL})...")
     # TODO (Backend B): Initialize official mcp.server / FastMCP instance exposing the 3 tools
     while True:
         await asyncio.sleep(3600)

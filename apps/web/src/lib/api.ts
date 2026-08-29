@@ -1,6 +1,6 @@
 /**
- * ClearanceGuard API Client Library
- * =================================
+ * Harbinger API Client Library
+ * ============================
  * Fetch wrappers for the Python FastAPI engine REST endpoints.
  * Frontend Owner: Use these functions in components to connect to the backend.
  */

@@ -1,6 +1,6 @@
 """
-Core Engine Module for ClearanceGuard
-=====================================
+Core Engine Module for Harbinger
+================================
 Contains stub functions for trade document simulation, graph pattern matching,
 outcome recording, and graph snapshot extraction.
 

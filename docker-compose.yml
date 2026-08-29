@@ -4,7 +4,7 @@ services:
   # 1. Neo4j Graph Database
   neo4j:
     image: neo4j:5-community
-    container_name: clearanceguard-neo4j
+    container_name: harbinger-neo4j
     ports:
       - "7474:7474" # HTTP Browser UI
       - "7687:7687" # Bolt Protocol
@@ -21,7 +21,7 @@ services:
     build:
       context: ./services/engine
       dockerfile: Dockerfile
-    container_name: clearanceguard-engine
+    container_name: harbinger-engine
     ports:
       - "8000:8000"
     environment:
@@ -37,7 +37,7 @@ services:
     build:
       context: ./services/mcp-server
       dockerfile: Dockerfile
-    container_name: clearanceguard-mcp-server
+    container_name: harbinger-mcp-server
     environment:
       - ENGINE_URL=http://engine:8000
     depends_on:
@@ -48,7 +48,7 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-    container_name: clearanceguard-web
+    container_name: harbinger-web
     ports:
       - "3000:3000"
     environment:

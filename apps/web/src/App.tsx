@@ -15,7 +15,7 @@ export function App() {
       {/* Header */}
       <header className="flex items-center justify-between pb-6 border-b border-slate-800">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">ClearanceGuard Monorepo App</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">Harbinger Monorepo App</h1>
           <p className="text-xs text-slate-400">AI Customs Risk Agent • FastAPI + Neo4j + MCP + React</p>
         </div>
         <div className="text-xs text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full">
@@ -48,7 +48,7 @@ export function App() {
       </div>
 
       <footer className="pt-6 border-t border-slate-800 text-center text-xs text-slate-500">
-        ClearanceGuard Hackathon Scaffold • Run <code className="text-slate-300">docker-compose up</code> from repo root
+        Harbinger Hackathon Scaffold • Run <code className="text-slate-300">docker-compose up</code> from repo root
       </footer>
 
     </div>

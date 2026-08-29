@@ -1,4 +1,4 @@
-# 🛃⚡ ClearanceGuard
+# 🛃⚡ Harbinger
 
 ### A Predictive Preemption + Immune Memory engine — stops customs holds before they happen, and gets smarter every time it's wrong.
 
@@ -15,11 +15,11 @@
 
 Demurrage and detention fees are real, per-day charges that start ticking the moment a shipment's customs paperwork has an issue — a unit count that doesn't match across documents, a missing certificate, a wrong HS code. Compliance officers juggle dozens of shipments across email and calls, and the issue usually isn't caught until the container's already sitting at port, accruing cost.
 
-**Most tools catch this after the fact.** ClearanceGuard doesn't.
+**Most tools catch this after the fact.** Harbinger doesn't.
 
 ## ⚡ What Makes This Different
 
-ClearanceGuard isn't a detect-and-fix bot. It's a **Predictive Preemption + Immune Memory** engine:
+Harbinger isn't a detect-and-fix bot. It's a **Predictive Preemption + Immune Memory** engine:
 
 1. **Predict before submission** — simulates a shipment's draft documents against a compounding pattern library and returns a hold-probability score with the *specific* reason, before anything is ever filed.
 2. **Immune memory, not one-shot repair** — every real outcome it's told about permanently updates a living knowledge graph, so the same failure class gets caught instantly, everywhere, forever after — not re-diagnosed from scratch each time.

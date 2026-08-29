@@ -1,6 +1,6 @@
 """
-FastAPI REST API Routes for ClearanceGuard Engine
-=================================================
+FastAPI REST API Routes for Harbinger Engine
+============================================
 Defines REST endpoints for simulation, outcome recording, pattern querying,
 and graph visualization.
 
