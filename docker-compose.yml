@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # 1. Neo4j Graph Database
+  neo4j:
+    image: neo4j:5-community
+    container_name: clearanceguard-neo4j
+    ports:
+      - "7474:7474" # HTTP Browser UI
+      - "7687:7687" # Bolt Protocol
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p password 'RETURN 1;' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Core Python FastAPI Engine
+  engine:
+    build:
+      context: ./services/engine
+      dockerfile: Dockerfile
+    container_name: clearanceguard-engine
+    ports:
+      - "8000:8000"
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+    depends_on:
+      neo4j:
+        condition: service_started
+
+  # 3. Model Context Protocol (MCP) Server Adapter
+  mcp-server:
+    build:
+      context: ./services/mcp-server
+      dockerfile: Dockerfile
+    container_name: clearanceguard-mcp-server
+    environment:
+      - ENGINE_URL=http://engine:8000
+    depends_on:
+      - engine
+
+  # 4. React + Tailwind Web App
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: clearanceguard-web
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api
+    depends_on:
+      - engine
