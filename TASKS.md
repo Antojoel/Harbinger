@@ -6,37 +6,27 @@ run `docker-compose up` from the repo root to start.
 
 ---
 
-## Anto — Lead + Backend: Graph + Core Engine
-*(services/engine/app/core, .../graph, .../seed)*
+## Anto — Lead + Backend: Core Engine, REST + MCP Adapters, Integrations
+*(services/engine/app/core, services/engine/app/api, services/mcp-server, services/engine/app/integrations)*
 
 **Coordination (Lead responsibilities, on top of the build tasks below):**
 - [ ] Unblock Vignesh and Harish when they're stuck on an interface/contract question
-- [ ] Own the integration points between all three workstreams (core engine ↔ adapters ↔ frontend) — merge and resolve conflicts
+- [ ] Own the integration points between all workstreams (core engine ↔ graph ↔ frontend) — merge and resolve conflicts
 - [ ] Own final submission: GitHub repo cleanliness, README/build instructions accuracy, demo video/live URL
 - [ ] Own demo rehearsal — run the full 90–105 sec script end-to-end multiple times before judging
 
-**Build tasks:**
-- [ ] Design the Neo4j schema: nodes (HSCode, Country, CertificateRequirement,
-      DocumentType, RejectionReason, Shipment, Pattern) and edges (REQUIRES,
-      CONTRADICTS, CAUSED_REJECTION, MATCHES, RESOLVED_BY)
-- [ ] Write seed_data.py: load an initial rule set covering 3 distinct
-      contradiction types (unit mismatch, HS code mismatch, missing
-      certificate) across a few shipments
-- [ ] Implement `simulate(shipment_docs) -> {risk_score, reasons, matched_patterns}`
+**Core engine:**
+- [ ] Implement `simulate(shipment_docs) -> {risk_score, reasons, matched_patterns}`,
+      querying Vignesh's graph
 - [ ] Implement `record_outcome(shipment_id, actual_outcome)` — must create/
       reinforce a Pattern node+edges in the graph (this is the "immune
       memory grows" mechanic — the whole point of the demo)
 - [ ] Implement `query_patterns(filters)` and `graph_snapshot()` (returns
       nodes+edges as JSON for the frontend visualization)
 
----
-
-## Vignesh — Backend: Adapters + Integrations
-*(services/engine/app/api, services/mcp-server, services/engine/app/integrations)*
-
 **REST + MCP adapters:**
 - [ ] Build REST routes: POST /simulate, POST /record-outcome, GET /graph,
-      GET /patterns — thin wrappers calling Anto's core engine functions
+      GET /patterns — thin wrappers over the core engine functions above
 - [ ] Build the MCP server: 3 tools (check_shipment_risk, record_outcome_tool,
       query_patterns_tool), each calling the REST API via HTTP internally
 - [ ] Do REST first — it's the primary demo path. MCP is a secondary
@@ -50,10 +40,26 @@ run `docker-compose up` from the repo root to start.
       (pricing model TBD — build the integration generically so it works
       whether we land on usage-based or subscription pricing)
 
-*Note: this workstream carries what were previously two separate tracks
-(REST+MCP, and Vertex AI+Razorpay) — sequence them as: REST API working
-end-to-end first, then MCP, then Vertex AI, then Razorpay, so there's
-always a working demo path even if time runs out before everything's done.*
+*Sequencing if time runs short: core engine → REST → MCP → Vertex AI → Razorpay,
+so there's always a working demo path even if the later items don't get finished.*
+
+---
+
+## Vignesh — Backend: Immune Memory Graph
+*(services/engine/app/graph, services/engine/app/seed)*
+
+- [ ] Design the Neo4j schema: nodes (HSCode, Country, CertificateRequirement,
+      DocumentType, RejectionReason, Shipment, Pattern) and edges (REQUIRES,
+      CONTRADICTS, CAUSED_REJECTION, MATCHES, RESOLVED_BY)
+- [ ] Write seed_data.py: load an initial rule set covering 3 distinct
+      contradiction types (unit mismatch, HS code mismatch, missing
+      certificate) across a few shipments
+- [ ] Build neo4j_client.py: connection handling + the Cypher query functions
+      Anto's core engine will call into (e.g. find matching patterns for a
+      shipment, write/reinforce a pattern node+edges on a recorded outcome)
+- [ ] Coordinate directly with Anto on the exact query function signatures
+      he needs from the core engine — this is the one hard interface
+      between your two workstreams, agree on it early
 
 ---
 
