@@ -222,7 +222,11 @@ export function useMicDictation({ onResult, onError } = {}) {
   };
 }
 
-export function useTextToSpeech() {
+export function useTextToSpeech({ onNotice } = {}) {
+  // Only a value the user actually set counts. Absent means "not decided
+  // yet", and the default is chosen once we know whether the engine has a
+  // real voice: on when it does (Kokoro on a local stack), off when the only
+  // option is the browser's robotic built-in.
   const [enabled, setEnabled] = useState(() => {
     try {
       return localStorage.getItem(TTS_KEY) === "1";
@@ -230,21 +234,47 @@ export function useTextToSpeech() {
       return false;
     }
   });
-  // Whether the engine can synthesize server-side. When it can (Kokoro on a
-  // local stack, or a cloud provider) we use that voice instead of the
-  // browser's built-in one, which is robotic and differs per machine.
   const [serverTts, setServerTts] = useState(false);
   const audioRef = useRef(null);
+  const noticeRef = useRef(onNotice);
+  // Set when the browser refuses to autoplay; the next click unlocks audio.
+  const blockedRef = useRef(false);
+
+  useEffect(() => {
+    noticeRef.current = onNotice;
+  }, [onNotice]);
 
   useEffect(() => {
     let alive = true;
     api
       .config()
-      .then((c) => alive && setServerTts(Boolean(c?.server_tts)))
+      .then((c) => {
+        if (!alive) return;
+        const hasServerVoice = Boolean(c?.server_tts);
+        setServerTts(hasServerVoice);
+        let chosen = null;
+        try {
+          chosen = localStorage.getItem(TTS_KEY);
+        } catch {
+          /* ignore */
+        }
+        if (chosen === null && hasServerVoice) setEnabled(true);
+      })
       .catch(() => {});
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Chrome and Brave block audio started outside a user gesture until the
+  // page has been interacted with. An answer arrives asynchronously, so the
+  // first one can be refused; re-arm on the next real click.
+  useEffect(() => {
+    const unlock = () => {
+      blockedRef.current = false;
+    };
+    window.addEventListener("pointerdown", unlock);
+    return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
   const stopAudio = useCallback(() => {
@@ -308,8 +338,25 @@ export function useTextToSpeech() {
           if (audio) {
             const el = new Audio(`data:${mime || "audio/wav"};base64,${audio}`);
             audioRef.current = el;
-            await el.play();
-            return;
+            try {
+              await el.play();
+              blockedRef.current = false;
+              return;
+            } catch (err) {
+              // A refused autoplay is not a synthesis failure — falling back
+              // to the browser voice would just be refused too. Say so once,
+              // and let the next click unlock it.
+              if (err?.name === "NotAllowedError") {
+                if (!blockedRef.current) {
+                  blockedRef.current = true;
+                  noticeRef.current?.(
+                    "Your browser blocked autoplay. Click anywhere, then ask again to hear answers."
+                  );
+                }
+                return;
+              }
+              throw err;
+            }
           }
         } catch {
           /* fall through to the browser voice */

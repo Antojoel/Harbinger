@@ -104,7 +104,11 @@ export default function ChatPanel() {
   const stickToBottomRef = useRef(true);
   const prevSelectedRef = useRef("");
 
-  const tts = useTextToSpeech();
+  const tts = useTextToSpeech({
+    onNotice: useCallback((message) => {
+      setMessages((m) => [...m, { role: "system", text: message }]);
+    }, []),
+  });
   const speech = useMicDictation({
     // Dictation fills the composer rather than sending, so the user can fix a
     // misheard word before it goes anywhere.
@@ -257,13 +261,21 @@ export default function ChatPanel() {
           type="button"
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground"
+          className={cn(
+            "h-8 w-8 shrink-0",
+            tts.enabled ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+          )}
           onClick={tts.toggle}
           aria-pressed={tts.enabled}
+          title={
+            tts.enabled
+              ? `Answers are spoken aloud${tts.serverTts ? "" : " (browser voice)"}`
+              : "Answers are not spoken"
+          }
           aria-label={tts.enabled ? "Turn off spoken answers" : "Read answers aloud"}
         >
           {tts.enabled ? (
-            <Volume2 className="h-4 w-4 text-primary" />
+            <Volume2 className="h-4 w-4" />
           ) : (
             <VolumeX className="h-4 w-4" />
           )}
