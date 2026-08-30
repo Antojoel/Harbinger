@@ -56,12 +56,20 @@ if (await row.isVisible().catch(() => false)) {
   console.log("saved 06-shipment-detail");
 }
 
-// assistant dock (open via header button at this width it's hidden; use xl viewport)
+// assistant dock — wide viewport so the right rail is visible
 await ctx.close();
 const wide = await browser.newContext({ viewport: { width: 1680, height: 1000 }, deviceScaleFactor: 2 });
 const wp = await wide.newPage();
 await wp.goto(BASE + "/", { waitUntil: "networkidle" }).catch(() => {});
-await wp.waitForTimeout(800);
+await wp.waitForTimeout(600);
+const wpGuest = wp.getByTestId("continue-as-guest-button");
+if (await wpGuest.isVisible().catch(() => false)) {
+  await wpGuest.click();
+  await wp.waitForTimeout(1200);
+  const wpSkip = wp.getByTestId("onboarding-skip-button");
+  if (await wpSkip.isVisible().catch(() => false)) await wpSkip.click();
+  await wp.waitForTimeout(500);
+}
 const at = wp.getByTestId("dock-tab-assistant");
 if (await at.isVisible().catch(() => false)) {
   await at.click();

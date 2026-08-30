@@ -1,13 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Sparkles, Send, Volume2, VolumeX } from "lucide-react";
+import { Sparkles, Volume2, VolumeX } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { MessageBubble } from "./MessageBubble";
+import { Composer } from "./Composer";
+import { TypingDots } from "./TypingDots";
+import { useSpeechRecognition, useTextToSpeech } from "./useSpeech";
 
 const QUICK_PROMPTS = [
   "Why is this flagged?",
@@ -15,222 +23,253 @@ const QUICK_PROMPTS = [
   "What fixes it?",
 ];
 
-const TTS_KEY = "cg_tts_on";
+const BAND_DOT = {
+  low: "bg-ok",
+  medium: "bg-warn",
+  high: "bg-danger",
+};
 
-function TypingDots() {
+const SCROLL_STICK_THRESHOLD_PX = 48;
+
+function RiskDot({ band }) {
   return (
-    <div className="flex items-center gap-1 px-1 py-2" aria-label="Assistant is typing">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="cg-typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground/60"
-          style={{ animationDelay: `${i * 160}ms` }}
-        />
-      ))}
-    </div>
+    <span
+      className={cn("h-1.5 w-1.5 shrink-0 rounded-full", BAND_DOT[band] || "bg-muted-foreground")}
+    />
   );
 }
 
-function Bubble({ role, text }) {
-  if (role === "system") {
-    return (
-      <div className="my-1 text-center text-[11px] text-muted-foreground">· {text} ·</div>
-    );
-  }
-  const isUser = role === "user";
-  return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "cg-rise max-w-[85%] whitespace-pre-wrap px-3 py-2 text-sm shadow-sm",
-          isUser
-            ? "rounded-lg rounded-br-sm bg-primary text-primary-foreground"
-            : "rounded-lg rounded-tl-sm bg-muted text-foreground"
-        )}
-      >
-        {text}
-      </div>
-    </div>
-  );
+function pickDefaultShipment(list, routeId) {
+  if (!list.length) return "";
+  const onRoute = list.find((s) => s.id === routeId);
+  if (onRoute) return onRoute.id;
+  const atRisk = list.find((s) => s.risk_band === "high" || s.risk_band === "medium");
+  return (atRisk || list[0]).id;
 }
 
 export default function ChatPanel() {
   const routeParams = useParams();
   const [shipments, setShipments] = useState([]);
   const [selected, setSelected] = useState("");
-  const [messages, setMessages] = useState([]); // {role, text}
+  const [messages, setMessages] = useState([]); // { role, text }
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
-  const [ttsOn, setTtsOn] = useState(() => {
-    try { return localStorage.getItem(TTS_KEY) === "1"; } catch { return false; }
-  });
-  const scrollRef = useRef(null);
-  const taRef = useRef(null);
 
+  const scrollRootRef = useRef(null);
+  const viewportRef = useRef(null);
+  const stickToBottomRef = useRef(true);
+  const prevSelectedRef = useRef("");
+
+  const tts = useTextToSpeech();
+  const speech = useSpeechRecognition({
+    onResult: useCallback((transcript) => {
+      setDraft((current) =>
+        current.trim() ? `${current.trim()} ${transcript}` : transcript
+      );
+    }, []),
+  });
+
+  // Load the shipment list once, choose a sensible default context.
   useEffect(() => {
-    api.shipments().then((s) => {
-      setShipments(s || []);
-      const routeMatch = s?.find((x) => x.id === routeParams.id);
-      const atRisk = s?.find((x) => x.risk_band === "high" || x.risk_band === "medium");
-      setSelected((prev) => prev || routeMatch?.id || atRisk?.id || s?.[0]?.id || "");
-    }).catch(() => {});
+    let cancelled = false;
+    api
+      .shipments()
+      .then((list) => {
+        if (cancelled) return;
+        const safe = Array.isArray(list) ? list : [];
+        setShipments(safe);
+        setSelected((prev) => prev || pickDefaultShipment(safe, routeParams.id));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMessages((m) => [
+            ...m,
+            { role: "system", text: "Couldn't load shipments — reopen the Assistant to retry." },
+          ]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // follow the route's shipment when it changes
+  // Follow the shipment in the route when it changes.
   useEffect(() => {
     if (routeParams.id && shipments.some((s) => s.id === routeParams.id)) {
-      setSelected((prev) => {
-        if (prev === routeParams.id) return prev;
-        setMessages((m) =>
-          m.length ? [...m, { role: "system", text: `now asking about ${routeParams.id}` }] : m
-        );
-        return routeParams.id;
-      });
+      setSelected(routeParams.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeParams.id, shipments.length]);
 
+  // Insert a context-change divider whenever the selected shipment changes
+  // (after the very first assignment).
   useEffect(() => {
-    const el = scrollRef.current?.querySelector("[data-radix-scroll-area-viewport]");
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!selected) return;
+    const prev = prevSelectedRef.current;
+    prevSelectedRef.current = selected;
+    if (!prev || prev === selected) return;
+    const ship = shipments.find((s) => s.id === selected);
+    const label = ship?.ref || selected;
+    setMessages((m) => (m.length ? [...m, { role: "divider", text: label }] : m));
+  }, [selected, shipments]);
+
+  // Track whether the user has scrolled away from the bottom.
+  useEffect(() => {
+    const viewport = scrollRootRef.current?.querySelector(
+      "[data-radix-scroll-area-viewport]"
+    );
+    viewportRef.current = viewport || null;
+    if (!viewport) return undefined;
+    const handleScroll = () => {
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      stickToBottomRef.current = distanceFromBottom < SCROLL_STICK_THRESHOLD_PX;
+    };
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, [shipments.length]);
+
+  // Auto-scroll to the newest message unless the user scrolled up.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (viewport && stickToBottomRef.current) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
   }, [messages, thinking]);
 
-  const speak = useCallback((text) => {
-    if (!ttsOn || !window.speechSynthesis) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.02;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-  }, [ttsOn]);
+  const send = useCallback(
+    async (rawQuestion) => {
+      const question = (rawQuestion ?? draft).trim();
+      if (!question || thinking) return;
+      if (!selected) {
+        setMessages((m) => [...m, { role: "system", text: "Pick a shipment above first." }]);
+        return;
+      }
 
-  const send = useCallback(async (question) => {
-    const q = (question ?? draft).trim();
-    if (!q || thinking) return;
-    if (!selected) {
-      setMessages((m) => [...m, { role: "system", text: "pick a shipment above first" }]);
-      return;
-    }
-    setMessages((m) => [...m, { role: "user", text: q }]);
-    setDraft("");
-    setThinking(true);
-    try {
-      const res = await api.voice(selected, q);
-      setMessages((m) => [...m, { role: "assistant", text: res.answer }]);
-      speak(res.answer);
-    } catch {
-      setMessages((m) => [...m, { role: "system", text: "couldn't reach the assistant — try again" }]);
-    } finally {
-      setThinking(false);
-    }
-  }, [draft, thinking, selected, speak]);
+      if (speech.listening) speech.stop();
+      stickToBottomRef.current = true;
+      setMessages((m) => [...m, { role: "user", text: question }]);
+      setDraft("");
+      setThinking(true);
+      try {
+        const res = await api.voice(selected, question);
+        const answer = res?.answer || "No answer came back for that one.";
+        setMessages((m) => [...m, { role: "assistant", text: answer }]);
+        tts.speak(answer);
+      } catch {
+        setMessages((m) => [
+          ...m,
+          { role: "system", text: "Couldn't reach the assistant — try again." },
+        ]);
+      } finally {
+        setThinking(false);
+      }
+    },
+    [draft, thinking, selected, speech, tts]
+  );
 
-  const toggleTts = () => {
-    setTtsOn((v) => {
-      const next = !v;
-      try { localStorage.setItem(TTS_KEY, next ? "1" : "0"); } catch { /* ignore */ }
-      if (!next && window.speechSynthesis) window.speechSynthesis.cancel();
-      return next;
-    });
-  };
-
-  const onKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
+  const isEmpty = messages.length === 0 && !thinking;
 
   return (
     <div className="flex h-full flex-col" data-testid="assistant-panel">
-      {/* header: context + tts toggle */}
+      {/* Header: context shipment + read-aloud toggle */}
       <div className="mb-2 flex items-center gap-2">
         <Select value={selected} onValueChange={setSelected}>
-          <SelectTrigger className="h-8 flex-1 text-xs" data-testid="assistant-shipment-select">
+          <SelectTrigger
+            className="h-8 flex-1 text-xs"
+            data-testid="assistant-shipment-select"
+          >
             <SelectValue placeholder="Select a shipment" />
           </SelectTrigger>
           <SelectContent>
             {shipments.map((s) => (
               <SelectItem key={s.id} value={s.id} className="text-xs">
-                <span className="font-mono">{s.ref}</span> · {s.hold_probability}% {s.risk_band}
+                <span className="flex items-center gap-1.5">
+                  <RiskDot band={s.risk_band} />
+                  <span className="font-mono">{s.ref}</span>
+                  <span className="text-muted-foreground">
+                    {s.hold_probability}% {s.risk_band}
+                  </span>
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+
         <Button
-          variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
-          aria-label={ttsOn ? "Turn off spoken answers" : "Read answers aloud"}
-          aria-pressed={ttsOn}
-          onClick={toggleTts}
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground"
+          onClick={tts.toggle}
+          aria-pressed={tts.enabled}
+          aria-label={tts.enabled ? "Turn off spoken answers" : "Read answers aloud"}
         >
-          {ttsOn ? <Volume2 className="h-4 w-4 text-primary" /> : <VolumeX className="h-4 w-4" />}
+          {tts.enabled ? (
+            <Volume2 className="h-4 w-4 text-primary" />
+          ) : (
+            <VolumeX className="h-4 w-4" />
+          )}
         </Button>
       </div>
 
-      {/* transcript */}
-      <ScrollArea ref={scrollRef} className="min-h-0 flex-1 rounded-lg border border-border bg-card/50">
+      {/* Transcript */}
+      <ScrollArea
+        ref={scrollRootRef}
+        className="min-h-0 flex-1 rounded-lg border border-border bg-card/40"
+      >
         <div
           className="flex flex-col gap-2.5 p-3"
           role="log"
           aria-live="polite"
           aria-label="Assistant conversation"
         >
-          {messages.length === 0 && !thinking && (
+          {isEmpty && (
             <div className="my-6 px-2 text-center">
               <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-accent text-accent-foreground">
                 <Sparkles className="h-4 w-4" />
               </div>
               <p className="text-xs text-muted-foreground">
-                Ask about any shipment's hold risk. Pick one above, then ask.
+                Ask about any shipment's hold risk. Pick one above.
               </p>
             </div>
           )}
-          {messages.map((m, i) => (
-            <Bubble key={i} role={m.role} text={m.text} />
+
+          {messages.map((message, index) => (
+            <MessageBubble key={index} role={message.role} text={message.text} />
           ))}
+
           {thinking && <TypingDots />}
         </div>
       </ScrollArea>
 
-      {/* quick prompts */}
+      {/* Quick prompts */}
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {QUICK_PROMPTS.map((p) => (
+        {QUICK_PROMPTS.map((prompt) => (
           <button
-            key={p}
+            key={prompt}
             type="button"
-            onClick={() => send(p)}
+            onClick={() => send(prompt)}
             disabled={thinking}
-            className="rounded-full bg-accent px-2.5 py-1 text-xs text-accent-foreground transition-colors duration-fast hover:bg-primary/10 disabled:opacity-50"
+            className="rounded-full bg-accent px-2.5 py-1 text-xs text-accent-foreground transition-colors duration-fast hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {p}
+            {prompt}
           </button>
         ))}
       </div>
 
-      {/* composer */}
-      <div className="mt-2 flex items-end gap-2 rounded-lg border border-border bg-card p-1.5 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30">
-        <label htmlFor="assistant-composer" className="sr-only">Message the assistant</label>
-        <textarea
-          id="assistant-composer"
-          ref={taRef}
-          data-testid="assistant-composer"
-          rows={1}
+      {/* Composer */}
+      <div className="mt-2">
+        <Composer
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Ask about this shipment…"
-          className="max-h-24 min-h-[32px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm placeholder:text-muted-foreground/70 focus-visible:outline-none"
+          onChange={setDraft}
+          onSend={() => send()}
+          disabled={thinking}
+          micSupported={speech.supported}
+          listening={speech.listening}
+          onMicToggle={speech.toggle}
         />
-        <Button
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={() => send()}
-          disabled={thinking || !draft.trim()}
-          aria-label="Send message"
-          data-testid="assistant-send"
-        >
-          <Send className="h-4 w-4" />
-        </Button>
       </div>
     </div>
   );

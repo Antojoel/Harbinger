@@ -52,34 +52,57 @@ export default function OnboardingTour() {
   return (
     <Dialog open={showOnboarding} onOpenChange={(open) => !open && finish()}>
       <DialogContent className="sm:max-w-md" data-testid="onboarding-tour-dialog">
-        <DialogHeader>
-          <div className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Icon className="h-5 w-5" />
-          </div>
-          <DialogTitle className="text-center">{current.title}</DialogTitle>
-          <DialogDescription className="text-center">{current.body}</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex justify-center gap-1.5 py-2">
+        {/* segmented progress — one filled bar per completed/active step */}
+        <div className="flex gap-1.5" aria-hidden="true">
           {STEPS.map((_, i) => (
             <span
               key={i}
-              className={`h-1.5 w-1.5 rounded-full transition-colors ${i === step ? "bg-primary" : "bg-muted"}`}
+              className={`h-1 flex-1 rounded-full transition-colors duration-normal ease-out ${
+                i <= step ? "bg-primary" : "bg-muted"
+              }`}
             />
           ))}
         </div>
 
-        <DialogFooter className="flex-row justify-between sm:justify-between">
+        {/* keyed wrapper -> remounts on step change so cg-rise replays */}
+        <div key={step} className="cg-rise">
+          <DialogHeader className="space-y-3 text-left sm:text-left">
+            <div className="flex items-center justify-between">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                <Icon className="h-5 w-5" />
+              </div>
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] tabular-nums text-muted-foreground">
+                Step {step + 1} / {STEPS.length}
+              </span>
+            </div>
+            <DialogTitle className="text-left text-base">{current.title}</DialogTitle>
+            <DialogDescription className="text-left text-sm leading-relaxed">
+              {current.body}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <DialogFooter className="flex-row items-center justify-between sm:justify-between sm:space-x-0">
           <Button variant="ghost" size="sm" onClick={finish} data-testid="onboarding-skip-button">
             Skip
           </Button>
-          <Button
-            size="sm"
-            onClick={() => (isLast ? finish() : setStep((s) => s + 1))}
-            data-testid="onboarding-next-button"
-          >
-            {isLast ? "Get started" : "Next"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              disabled={step === 0}
+            >
+              Back
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => (isLast ? finish() : setStep((s) => s + 1))}
+              data-testid="onboarding-next-button"
+            >
+              {isLast ? "Get started" : "Next"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -4,17 +4,42 @@ import "reactflow/dist/style.css";
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
 import { useGraph } from "@/context/GraphContext";
 
+// Colours are pulled from the design tokens in src/index.css and pinned as
+// mid-tone hsl() literals here because React Flow renders nodes/edges with
+// inline styles that can't consume Tailwind classes or resolve `var(--x)`
+// reliably inside its SVG layer. Each value is a deliberate midpoint between
+// the light and dark token so a single literal stays legible on both the
+// white (`--card` light) and near-black (`--card` dark) panel grounds.
+//   HSCode                 -> --primary        (222 76% 52% / 221 84% 66%)
+//   Country / DocumentType  -> --muted-foreground (220 12% 42% / 220 14% 62%)
+//   CertificateRequirement -> --ok             (172 64% 34% / 172 58% 46%)
+//   Shipment               -> --warn           (34 92% 46% / 34 90% 58%)
+//   Pattern                -> --chart-4 purple  (262 52% 58% / 262 60% 68%)
+//   RejectionReason        -> --danger         (356 68% 50% / 356 72% 62%)
 const TYPE_STYLE = {
-  HSCode: { dot: "hsl(210 85% 55%)", fg: "hsl(210 90% 30%)" },
-  Country: { dot: "hsl(215 16% 55%)", fg: "hsl(222 47% 20%)" },
-  CertificateRequirement: { dot: "hsl(173 60% 40%)", fg: "hsl(173 70% 26%)" },
-  DocumentType: { dot: "hsl(215 16% 65%)", fg: "hsl(215 16% 40%)" },
-  Shipment: { dot: "hsl(38 92% 50%)", fg: "hsl(38 92% 32%)" },
-  Pattern: { dot: "hsl(262 55% 55%)", fg: "hsl(262 45% 40%)" },
-  RejectionReason: { dot: "hsl(0 72% 51%)", fg: "hsl(0 72% 42%)" },
+  HSCode: { dot: "hsl(222 82% 60%)", fg: "hsl(222 78% 62%)" },
+  Country: { dot: "hsl(220 13% 55%)", fg: "hsl(220 12% 56%)" },
+  CertificateRequirement: { dot: "hsl(172 58% 42%)", fg: "hsl(172 52% 45%)" },
+  DocumentType: { dot: "hsl(220 13% 58%)", fg: "hsl(220 12% 58%)" },
+  Shipment: { dot: "hsl(34 90% 52%)", fg: "hsl(34 82% 50%)" },
+  Pattern: { dot: "hsl(262 58% 64%)", fg: "hsl(262 56% 65%)" },
+  RejectionReason: { dot: "hsl(356 72% 60%)", fg: "hsl(356 68% 62%)" },
 };
 
+// Edge tints, same light/dark-midpoint reasoning.
+const EDGE_REJECTION = "hsl(356 72% 60%)";
+const EDGE_DEFAULT = "hsl(220 12% 60%)";
+// `<Background>` dot grid — the spec asks for `hsl(var(--border))` but the
+// pattern fill is inlined into React Flow's SVG, so a fixed neutral that
+// reads faintly on both grounds is used instead.
+const GRID_DOT = "hsl(220 10% 70%)";
+
 const NODE_RADIUS = 9;
+
+// Node labels that are machine identifiers (HS codes like "8471.30",
+// container ids like "MSKU1234567") get the mono face; human-readable
+// labels (country names, pattern descriptions) stay in the sans stack.
+const CODE_TYPES = new Set(["HSCode", "Shipment"]);
 
 // A network graph like this one has edges radiating in every direction, not
 // just left-to-right - a single Handle pinned to the node's visual center
@@ -22,6 +47,7 @@ const NODE_RADIUS = 9;
 // whatever two centers are involved, from any angle.
 function CGNode({ data }) {
   const st = TYPE_STYLE[data.type] || TYPE_STYLE.DocumentType;
+  const isCode = CODE_TYPES.has(data.type);
   return (
     <div
       className={`flex flex-col items-center ${data.isNew ? "cg-node-new" : ""}`}
@@ -38,11 +64,13 @@ function CGNode({ data }) {
         style={{ opacity: 0, top: NODE_RADIUS, left: "50%" }}
       />
       <div
-        className="rounded-full border-2 border-white shadow-md"
+        className="cg-node-box rounded-full border-2 border-card shadow-sm"
         style={{ background: st.dot, width: NODE_RADIUS * 2, height: NODE_RADIUS * 2 }}
       />
       <div
-        className="mt-1 max-w-[132px] text-center text-[10px] font-medium leading-tight"
+        className={`mt-1 max-w-[132px] text-center text-[10px] font-medium leading-tight ${
+          isCode ? "font-mono" : ""
+        }`}
         style={{ color: st.fg }}
       >
         {data.label}
@@ -111,8 +139,8 @@ export const GraphPanel = ({ compact = false }) => {
         animated: isNew,
         className: isNew ? "cg-edge-new" : "",
         style: {
-          stroke: e.type === "CAUSED_REJECTION" ? "hsl(0 72% 55%)" : "hsl(214 15% 70%)",
-          strokeWidth: 1.25,
+          stroke: e.type === "CAUSED_REJECTION" ? EDGE_REJECTION : EDGE_DEFAULT,
+          strokeWidth: e.type === "CAUSED_REJECTION" ? 1.5 : 1.25,
         },
       };
     });
@@ -132,7 +160,7 @@ export const GraphPanel = ({ compact = false }) => {
         nodesConnectable={false}
         elementsSelectable={true}
       >
-        <Background color="hsl(214 20% 88%)" gap={22} size={1} />
+        <Background color={GRID_DOT} gap={22} size={1} />
         {!compact && <Controls showInteractive={false} />}
       </ReactFlow>
     </div>
