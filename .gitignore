@@ -42,3 +42,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Media & Generated Demo Files
+scratch/
+screenshots/
+*.mp4
+*.webm
+*.wav
+*.mp3
+

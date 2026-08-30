@@ -9,7 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [googleConfigured, setGoogleConfigured] = useState(false);
+  const [googleConfigured, setGoogleConfigured] = useState(true);
   const configFetched = useRef(false);
   const sessionResumed = useRef(false);
 

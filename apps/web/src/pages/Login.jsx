@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { ShieldCheck, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  "377305516274-l4c4jfkripvolrgke02d2nhj7l6ickob.apps.googleusercontent.com";
 
 /** Static, dependency-free depiction of the product loop:
  *  predict hold risk -> prevent the hold -> remember the rejection,

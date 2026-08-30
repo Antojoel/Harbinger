@@ -1,6 +1,16 @@
 import axios from "axios";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+const envUrl = import.meta.env.VITE_BACKEND_URL;
+let BACKEND_URL;
+if (envUrl && envUrl !== "http://localhost:8000") {
+  BACKEND_URL = envUrl;
+} else if (typeof window !== "undefined") {
+  BACKEND_URL = window.location.port === "3000"
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : window.location.origin;
+} else {
+  BACKEND_URL = "http://localhost:8000";
+}
 export const API = `${BACKEND_URL}/api`;
 
 const TOKEN_KEY = "harbinger_session_token";
