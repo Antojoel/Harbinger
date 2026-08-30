@@ -677,7 +677,7 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
     shipment = _ensure_simulated(shipment)
-    answer = ui_adapter.voice_answer(shipment["ref"], shipment["latest_simulation"])
+    answer = ui_adapter.voice_answer(shipment["ref"], shipment["latest_simulation"], payload.question)
     return {"answer": answer}
 
 
