@@ -17,6 +17,14 @@ VALID_LLM_ANSWER_PROVIDERS = ("heuristic", "openai", "gemini")
 
 DEFAULT_LLM_ANSWER_PROVIDER = "heuristic"
 
+# Synthesis can be pointed at a different backend than transcription. The
+# providers above each do both halves, but the best STT and the best TTS are
+# rarely the same service - the local faster-whisper container transcribes
+# well while Smallest AI's Waves speaks far better than Kokoro, and Waves has
+# no STT at all. An empty value (the default) means "use VOICE_PROVIDER for
+# both", so nothing changes for anyone who does not set this.
+VALID_TTS_PROVIDERS = ("smallest", "openai", "gemini", "local", "vertex", "text_only")
+
 
 @dataclass(frozen=True)
 class VoiceSettings:
@@ -39,6 +47,20 @@ class VoiceSettings:
     gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
     gemini_tts_voice: str = "Kore"
 
+    # Smallest AI Waves (Lightning) - TTS only, no STT.
+    smallest_api_key: str = ""
+    smallest_base_url: str = "https://api.smallest.ai/waves/v1"
+    smallest_tts_model: str = "lightning_v3.1"
+    # A valid voice id is required - Waves 400s on an unknown one rather than
+    # falling back to a default. List them with
+    #   GET https://api.smallest.ai/waves/v1/lightning-v3.1/get_voices
+    # (note: hyphenated model in that path, underscored in the /tts body).
+    # "srishti" speaks English and Hindi, which matches the beachhead market.
+    smallest_tts_voice: str = "srishti"
+    smallest_tts_language: str = "en"
+    smallest_tts_sample_rate: int = 24000
+    smallest_tts_speed: float = 1.0
+
     # Local sidecar services
     stt_url: str = "http://stt:8100"
     tts_url: str = "http://tts:8200"
@@ -60,6 +82,9 @@ class VoiceSettings:
     llm_answer_provider: str = DEFAULT_LLM_ANSWER_PROVIDER
     llm_answer_model: str = ""
 
+    # Synthesis-only override; "" means "same provider as `provider`".
+    tts_provider: str = ""
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> VoiceSettings:
         source = env if env is not None else os.environ
@@ -71,6 +96,9 @@ class VoiceSettings:
         )
         if llm_answer_provider not in VALID_LLM_ANSWER_PROVIDERS:
             llm_answer_provider = DEFAULT_LLM_ANSWER_PROVIDER
+        tts_provider = source.get("TTS_PROVIDER", "").strip().lower()
+        if tts_provider not in VALID_TTS_PROVIDERS:
+            tts_provider = ""
         return cls(
             provider=provider,
             request_timeout=_float(source, "VOICE_TIMEOUT", 30.0),
@@ -91,6 +119,15 @@ class VoiceSettings:
                 "GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"
             ),
             gemini_tts_voice=source.get("GEMINI_TTS_VOICE", "Kore"),
+            smallest_api_key=source.get("SMALLEST_AI_KEY", ""),
+            smallest_base_url=source.get(
+                "SMALLEST_BASE_URL", "https://api.smallest.ai/waves/v1"
+            ).rstrip("/"),
+            smallest_tts_model=source.get("SMALLEST_TTS_MODEL", "lightning_v3.1"),
+            smallest_tts_voice=source.get("SMALLEST_TTS_VOICE", "srishti"),
+            smallest_tts_language=source.get("SMALLEST_TTS_LANGUAGE", "en"),
+            smallest_tts_sample_rate=_int(source, "SMALLEST_TTS_SAMPLE_RATE", 24000),
+            smallest_tts_speed=_float(source, "SMALLEST_TTS_SPEED", 1.0),
             stt_url=source.get("STT_URL", "http://stt:8100").rstrip("/"),
             tts_url=source.get("TTS_URL", "http://tts:8200").rstrip("/"),
             vertex_service_account_json_b64=source.get(
@@ -102,11 +139,19 @@ class VoiceSettings:
             vertex_tts_voice=source.get("VERTEX_TTS_VOICE", "en-US-Neural2-C"),
             llm_answer_provider=llm_answer_provider,
             llm_answer_model=source.get("LLM_ANSWER_MODEL", ""),
+            tts_provider=tts_provider,
         )
 
 
 def _float(source: dict[str, str], key: str, default: float) -> float:
     try:
         return float(source.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _int(source: dict[str, str], key: str, default: int) -> int:
+    try:
+        return int(source.get(key, default))
     except (TypeError, ValueError):
         return default

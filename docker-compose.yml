@@ -50,6 +50,18 @@ services:
       - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
       - VERTEX_STT_MODEL=${VERTEX_STT_MODEL:-gemini-2.5-flash}
       - VERTEX_TTS_VOICE=${VERTEX_TTS_VOICE:-en-US-Neural2-C}
+      # Synthesis-only override, independent of VOICE_PROVIDER above:
+      #   smallest | openai | gemini | vertex | local | text_only
+      # Unset (default) = speak with VOICE_PROVIDER, exactly as before.
+      # TTS_PROVIDER=smallest uses Smallest AI Waves (Lightning) - no GPU,
+      # no local tts container needed for the speaking half.
+      - TTS_PROVIDER=${TTS_PROVIDER:-}
+      - SMALLEST_AI_KEY=${SMALLEST_AI_KEY:-}
+      - SMALLEST_TTS_MODEL=${SMALLEST_TTS_MODEL:-lightning_v3.1}
+      - SMALLEST_TTS_VOICE=${SMALLEST_TTS_VOICE:-srishti}
+      - SMALLEST_TTS_LANGUAGE=${SMALLEST_TTS_LANGUAGE:-en}
+      - SMALLEST_TTS_SAMPLE_RATE=${SMALLEST_TTS_SAMPLE_RATE:-24000}
+      - SMALLEST_TTS_SPEED=${SMALLEST_TTS_SPEED:-1.0}
       # Answer wording (response_text): heuristic (default, no LLM) | openai | gemini
       - LLM_ANSWER_PROVIDER=${LLM_ANSWER_PROVIDER:-heuristic}
       - LLM_ANSWER_MODEL=${LLM_ANSWER_MODEL:-}

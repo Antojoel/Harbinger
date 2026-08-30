@@ -1,0 +1,44 @@
+# GPU override for the local speech services.
+#
+# The base compose file keeps stt/tts on CPU wheels, because an unconditional
+# `gpus: all` fails outright on machines without GPU passthrough (Docker
+# Desktop on macOS has none) and the CUDA torch wheel is a multi-GB download
+# nobody on a laptop wants by accident.
+#
+# On a machine with an NVIDIA GPU and nvidia-container-toolkit installed, layer
+# this on top to build against CUDA wheels and hand the containers the GPU:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+#     --profile voice-local up -d --build
+#
+# Verify afterwards:
+#   curl -s localhost:8100/health   # expect  "device":"cuda"
+#   curl -s localhost:8200/health   # expect  "device":"cuda"
+
+services:
+  stt:
+    environment:
+      - STT_DEVICE=cuda
+      - STT_COMPUTE_TYPE=float16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  tts:
+    build:
+      args:
+        # Kokoro runs on torch; the CPU wheel is what makes synthesis slow.
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu126
+    environment:
+      - KOKORO_DEVICE=cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

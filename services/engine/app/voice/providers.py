@@ -423,6 +423,70 @@ class LocalProvider:
             response.content, response.headers.get("content-type", "audio/wav")
         )
 
+# ---------------------------------------------------------------------------
+# smallest (Waves / Lightning)
+# ---------------------------------------------------------------------------
+
+
+class SmallestProvider:
+    """Smallest AI Waves (Lightning) text-to-speech.
+
+    Synthesis only — Waves has no transcription endpoint, so this provider is
+    reachable through the ``TTS_PROVIDER`` axis rather than ``VOICE_PROVIDER``
+    (see :data:`voice.config.VALID_TTS_PROVIDERS`). Pair it with whatever STT
+    is already configured; ``VOICE_PROVIDER=local`` + ``TTS_PROVIDER=smallest``
+    is the intended combination — faster-whisper transcribes, Waves speaks —
+    and it needs no GPU for the speaking half.
+
+    The API returns the audio container asked for in ``output_format``
+    directly as the response body, not base64 in JSON.
+    """
+
+    name = "smallest"
+
+    def __init__(self, settings: VoiceSettings) -> None:
+        if not settings.smallest_api_key:
+            raise VoiceProviderError("SMALLEST_AI_KEY is not set")
+        self._settings = settings
+
+    async def transcribe(self, audio: bytes, mime: str) -> str:
+        raise VoiceProviderError(
+            "Smallest AI Waves is text-to-speech only; "
+            "set VOICE_PROVIDER to a provider that transcribes"
+        )
+
+    async def synthesize(self, text: str) -> Audio:
+        if not text:
+            return EMPTY_AUDIO
+        settings = self._settings
+        try:
+            async with build_client(
+                base_url=settings.smallest_base_url,
+                headers={
+                    "Authorization": f"Bearer {settings.smallest_api_key}",
+                    "Accept": "audio/wav",
+                },
+                timeout=settings.request_timeout,
+            ) as client:
+                response = await client.post(
+                    "/tts",
+                    json={
+                        "text": text,
+                        "voice_id": settings.smallest_tts_voice,
+                        "model": settings.smallest_tts_model,
+                        "sample_rate": settings.smallest_tts_sample_rate,
+                        "speed": settings.smallest_tts_speed,
+                        "language": settings.smallest_tts_language,
+                        "output_format": "wav",
+                    },
+                )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise VoiceProviderError(f"Smallest AI Waves synthesis failed: {exc}") from exc
+        if not response.content:
+            return EMPTY_AUDIO
+        return Audio(response.content, "audio/wav")
+
 
 # ---------------------------------------------------------------------------
 # factory
@@ -434,6 +498,7 @@ _PROVIDERS: dict[str, type] = {
     "gemini": GeminiProvider,
     "local": LocalProvider,
     "vertex": VertexProvider,
+    "smallest": SmallestProvider,
 }
 
 
@@ -456,3 +521,33 @@ def get_provider(settings: VoiceSettings) -> SpeechProvider:
             exc,
         )
         return TextOnlyProvider()
+
+
+
+def get_tts_provider(settings: VoiceSettings) -> SpeechProvider:
+    """Build the provider used for synthesis.
+
+    ``TTS_PROVIDER`` overrides ``VOICE_PROVIDER`` for the speaking half only,
+    so transcription and synthesis can come from different services. Unset (the
+    default) means both halves come from :func:`get_provider`, unchanged.
+
+    An override that cannot be constructed falls back to the main provider
+    rather than to ``text_only`` — a misconfigured override should degrade to
+    the speech that was already working, not to silence.
+    """
+    override = settings.tts_provider
+    if not override or override == settings.provider:
+        return get_provider(settings)
+    provider_cls = _PROVIDERS.get(override)
+    if provider_cls is None:
+        return get_provider(settings)
+    try:
+        return provider_cls(settings)
+    except VoiceProviderError as exc:
+        logger.warning(
+            "TTS provider %r unavailable (%s); falling back to %r",
+            override,
+            exc,
+            settings.provider,
+        )
+        return get_provider(settings)

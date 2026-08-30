@@ -76,13 +76,37 @@ def outcome_to_ui(engine_result: Dict[str, Any], credited_inr: int) -> Dict[str,
     }
 
 
-def voice_answer(shipment_ref: str, simulation: Dict[str, Any]) -> str:
-    """Plain-text answer for the voice widget. Browser handles STT/TTS
-    client-side (Web Speech API) — this never touches audio at all, so it
-    doesn't depend on Vertex AI / local-model work in V5."""
+_FIX_WORDS = ("fix", "resolve", "do about", "next step", "how do", "what should", "unblock", "clear it")
+_WHY_WORDS = ("reason", "why", "issue", "flag", "wrong", "problem", "detail", "which doc")
+
+
+def voice_answer(shipment_ref: str, simulation: Dict[str, Any], question: str = "") -> str:
+    """Plain-text answer for the dashboard assistant. Browser handles STT/TTS
+    client-side (Web Speech API) — this never touches audio at all. The answer
+    is shaped by the question (headline risk / the full reason list / the
+    recommended next action), all read from the shipment's latest simulation —
+    nothing is invented."""
+    q = (question or "").lower()
+
     if not simulation or not simulation.get("reasons"):
-        return f"{shipment_ref} has no known hold risk right now."
+        return f"{shipment_ref} has no known hold patterns on record — clear to file."
+
     score = simulation.get("score", 0)
     reasons = simulation.get("reasons", [])
-    lead = reasons[0] if reasons else "an unresolved issue"
-    return f"{shipment_ref} is {score}% likely to be held. Top reason: {lead}"
+    checklist = simulation.get("checklist", []) or []
+    recommended = simulation.get("recommended_default", "")
+    summary = simulation.get("summary", "")
+    n = len(reasons)
+    plural = "s" if n != 1 else ""
+
+    if any(w in q for w in _FIX_WORDS) and recommended:
+        open_items = "; ".join(r["item"] for r in checklist if r.get("action"))
+        tail = f" Open item{plural}: {open_items}." if open_items else ""
+        return f"{shipment_ref}: {recommended}{tail}"
+
+    if any(w in q for w in _WHY_WORDS):
+        joined = "; ".join(reasons)
+        return f"{shipment_ref} is {score}% likely to be held. {n} issue{plural} detected — {joined}."
+
+    detail = summary or f"Top reason: {reasons[0]}."
+    return f"{shipment_ref} is {score}% likely to be held. {detail}"

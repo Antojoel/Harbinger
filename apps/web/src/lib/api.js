@@ -22,6 +22,8 @@ client.interceptors.request.use((config) => {
 export const api = {
   config: () => client.get("/config").then((r) => r.data),
   stats: () => client.get("/stats").then((r) => r.data),
+  activity: (days = 7) => client.get("/activity", { params: { days } }).then((r) => r.data),
+  patterns: (params = {}) => client.get("/patterns", { params }).then((r) => r.data),
   shipments: (params = {}) => client.get("/shipments", { params }).then((r) => r.data),
   shipment: (id) => client.get(`/shipments/${id}`).then((r) => r.data),
   createShipment: (payload) => client.post("/shipments", payload).then((r) => r.data),
@@ -33,8 +35,11 @@ export const api = {
   outcome: (shipment_id, actual_result, reason = "") =>
     client.post("/outcome", { shipment_id, actual_result, reason }).then((r) => r.data),
   graph: () => client.get("/graph").then((r) => r.data),
-  voice: (shipment_id, question) =>
-    client.post("/voice", { shipment_id, question }).then((r) => r.data),
+  transcribe: (audio_base64) =>
+    client.post("/transcribe", { audio_base64 }).then((r) => r.data),
+  speak: (text) => client.post("/speak", { text }).then((r) => r.data),
+  voice: (shipment_id, question, page) =>
+    client.post("/voice", { shipment_id, question, page }).then((r) => r.data),
   pricing: () => client.get("/pricing").then((r) => r.data),
   order: (tier_id, shipment_id) =>
     client.post("/payments/order", { tier_id, shipment_id }).then((r) => r.data),

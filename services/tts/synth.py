@@ -24,6 +24,11 @@ logger = logging.getLogger("harbinger.tts")
 
 
 class Synthesizer(Protocol):
+    @property
+    def device(self) -> str:
+        """The device the model actually loaded on — not the one requested."""
+        ...
+
     def synthesize(
         self, text: str, *, voice: str | None, speed: float | None
     ) -> np.ndarray: ...
@@ -69,6 +74,10 @@ class TorchKokoro:
         )
         self._pipeline = KPipeline(lang_code=config.lang_code, device=self._device)
 
+    @property
+    def device(self) -> str:
+        return self._device
+
     def synthesize(
         self, text: str, *, voice: str | None, speed: float | None
     ) -> np.ndarray:
@@ -93,6 +102,12 @@ class MlxKokoro:
         self._config = config
         self._generate = generate_audio
         logger.info("loading Kokoro (mlx, lang=%s)", config.lang_code)
+
+    @property
+    def device(self) -> str:
+        # mlx-audio targets the Apple Silicon unified-memory GPU; there is no
+        # cpu/cuda choice to report here.
+        return "mlx"
 
     def synthesize(
         self, text: str, *, voice: str | None, speed: float | None

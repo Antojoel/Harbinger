@@ -66,7 +66,7 @@ The graph isn't just storage — it's rendered live in the web app. Confirming a
 | REST + MCP adapters | FastAPI + `httpx`, MCP server |
 | Frontend | React (Vite), Tailwind CSS + shadcn/ui, `reactflow` for live graph viz, `recharts` for the pricing page |
 | Orchestration | Docker Compose |
-| Voice interface | Browser Web Speech API (client-side STT/TTS) for the dashboard's voice widget; local-model text pipeline (Vignesh, V5) for the locked `/api/voice-query` contract |
+| Voice interface | Browser Web Speech API (client-side STT/TTS) for the dashboard's voice widget; local-model text pipeline (Vignesh, V5) for the locked `/api/voice-query` contract. Speech backends are pluggable: `VOICE_PROVIDER` picks transcription *and* synthesis, `TTS_PROVIDER` moves synthesis alone elsewhere — `TTS_PROVIDER=smallest` speaks through Smallest AI Waves (Lightning), no GPU needed for that half |
 | Payments | Razorpay, live test-mode integration |
 | Auth | Google Sign-In (Identity Services + server-side ID token verification), with a guest-login fallback |
 
@@ -133,6 +133,24 @@ The speech backend is set by `VOICE_PROVIDER`:
 | `openai` | OpenAI `/audio/transcriptions` + `/audio/speech` | `OPENAI_API_KEY` |
 | `gemini` | Gemini `generateContent` | `GEMINI_API_KEY` |
 | `local` | `stt` (faster-whisper, or Kroko/sherpa-onnx via `STT_ENGINE=sherpa`) + `tts` (Kokoro-82M) containers | — |
+
+Synthesis can be pointed at a different backend than transcription, because the best
+STT and the best TTS are rarely the same service. `TTS_PROVIDER` overrides the speaking
+half only; leave it unset and nothing changes.
+
+| `TTS_PROVIDER` | TTS | Needs |
+|---|---|---|
+| *(unset, default)* | whatever `VOICE_PROVIDER` says | — |
+| `smallest` | Smallest AI Waves (Lightning v3.1) — no GPU, no local `tts` container | `SMALLEST_AI_KEY` |
+| `openai` / `gemini` / `vertex` / `local` | as above | that provider's credentials |
+
+`smallest` is available on this axis only: Waves is text-to-speech, it has no
+transcription endpoint. The intended pairing on a GPU box is
+`VOICE_PROVIDER=local` (faster-whisper transcribes on CUDA) +
+`TTS_PROVIDER=smallest` (Waves speaks). If the override can't be built — no key —
+synthesis falls back to `VOICE_PROVIDER`'s own TTS rather than going silent.
+Voice ids are not free-form; list them with
+`curl -H "Authorization: Bearer $SMALLEST_AI_KEY" https://api.smallest.ai/waves/v1/lightning-v3.1/get_voices`.
 
 The risk answer is always computed locally from the graph; only speech I/O varies.
 `stt` (`:8100`) and `tts` (`:8200`) are **opt-in** — a plain `docker-compose up` never

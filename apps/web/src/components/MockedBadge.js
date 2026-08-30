@@ -6,8 +6,8 @@ export const MockedBadge = ({ text = "Seeded demo data" }) => (
   <TooltipProvider delayDuration={100}>
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-          <Info className="h-3 w-3" /> {text}
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <Info className="h-3 w-3 shrink-0" /> {text}
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-[240px] text-xs">

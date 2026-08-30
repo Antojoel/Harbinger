@@ -32,13 +32,17 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger("routes")
 
 
-from core import engine, shipment_store, user_store
+from core import engine, shipment_store, user_store, workspace
 from api import ui_adapter
 from documents import extraction
 from integrations import razorpay_client, google_auth
 from dataclasses import replace as _dc_replace
 
 from voice import answer_voice_query
+from voice.answer import fetch_graph_context, fetch_shipment_facts
+from voice.llm_answer import build_llm_answer
+from voice.providers import VoiceProviderError, get_provider, get_tts_provider
+from voice import tools as voice_tools
 from voice.config import VALID_LLM_ANSWER_PROVIDERS, VALID_PROVIDERS, VoiceSettings
 
 router = APIRouter()
@@ -131,8 +135,13 @@ class PaymentOrderUiRequest(BaseModel):
 
 
 class VoiceUiRequest(BaseModel):
-    shipment_id: str
+    shipment_id: Optional[str] = Field(
+        None, description="Shipment in focus, if the user is looking at one"
+    )
     question: str
+    page: Optional[str] = Field(
+        None, description="Route the user is currently on, e.g. '/graph' — lets the assistant answer about what's on screen"
+    )
 
 
 class SendEmailRequest(BaseModel):
@@ -172,6 +181,7 @@ def _run_simulation_for_shipment(shipment_id: str, documents: Dict[str, Any],
 
     if stored:
         shipment_store.set_latest_simulation(shipment_id, result)
+        shipment_store.record_activity("check", shipment_id)
 
     return result
 
@@ -401,13 +411,45 @@ async def stats_endpoint():
     at_risk = sum(1 for s in shipments if s["latest_simulation"]["score"] >= 25)
     avg = round(sum(s["latest_simulation"]["score"] for s in shipments) / total) if total else 0
     totals = shipment_store.get_totals()
+
+    bands = {"low": 0, "medium": 0, "high": 0}
+    for s in shipments:
+        bands[s["latest_simulation"].get("band", "low")] += 1
+
+    # How often each reason code actually fired across the current book —
+    # real counts from live simulations, not a stored leaderboard.
+    reason_counts: Dict[str, int] = {}
+    for s in shipments:
+        for item in s["latest_simulation"].get("checklist", []) or []:
+            code = item.get("ref")
+            if code:
+                reason_counts[code] = reason_counts.get(code, 0) + 1
+    top_reasons = sorted(
+        ({"code": c, "count": n} for c, n in reason_counts.items()),
+        key=lambda r: r["count"],
+        reverse=True,
+    )
+
+    patterns = engine.query_patterns({})
+
     return {
         "total_shipments": total,
         "at_risk": at_risk,
         "avg_hold_probability": avg,
         "cost_avoided_inr": totals["cost_avoided_inr"],
         "outcomes_recorded": totals["outcomes_recorded"],
+        "patterns_learned": len(patterns),
+        "risk_bands": bands,
+        "top_reasons": top_reasons,
     }
+
+
+@router.get("/activity", summary="Per-day engine activity for the dashboard chart (UI adapter)")
+async def activity_endpoint(days: int = Query(7, ge=1, le=30)):
+    """Real per-day counts of simulations run and outcomes recorded in this
+    process. Empty days are returned as zeroes, never back-filled with
+    invented numbers."""
+    return {"series": shipment_store.activity_series(days)}
 
 
 @router.post("/shipments", summary="Add a real shipment to the dashboard catalog and simulate it (UI adapter)")
@@ -610,6 +652,7 @@ async def outcome_ui_endpoint(payload: OutcomeRequest):
         credited_inr = shipment["demurrage_per_day_inr"] * 2
         shipment_store.record_credit(credited_inr)
     shipment_store.record_outcome_event()
+    shipment_store.record_activity("outcome", payload.shipment_id)
     shipment_store.set_status(payload.shipment_id, payload.actual_result)
 
     result = dict(engine_result)
@@ -619,25 +662,69 @@ async def outcome_ui_endpoint(payload: OutcomeRequest):
 
 @router.get("/pricing", summary="Pricing tiers for the Pricing page (UI adapter)")
 async def pricing_endpoint():
+    # Three published tiers. `price_inr_annual` is the effective per-month
+    # price when billed yearly (20% off, pre-computed here so the UI never
+    # has to invent a discount). Enterprise is quote-only: price_inr is None
+    # and the UI turns its CTA into a contact-sales action.
     return {
         "tiers": [
             {
-                "id": "per-shipment", "name": "Per Shipment", "price_inr": 149, "unit": "shipment",
-                "highlight": True,
-                "features": ["Full risk dossier per shipment", "Auto-fix internal defects",
-                             "Human-approved certificate drafts", "Immune-memory learning"],
-                "blurb": "Pay only when a shipment is checked.",
+                "id": "payg", "name": "Pay as you go", "price_inr": 149,
+                "price_inr_annual": 149, "unit": "shipment", "highlight": False,
+                "metered": True,
+                "features": [
+                    "₹149 per shipment checked",
+                    "No monthly commitment",
+                    "Full risk dossier per shipment",
+                    "Auto-fix internal defects",
+                    "Pay only when you run a check",
+                ],
+                "blurb": "Try the engine on real shipments before committing to a plan.",
             },
             {
-                "id": "success-fee", "name": "Success Fee", "price_inr": 0,
-                "unit": "12% of verified demurrage avoided", "highlight": False,
-                "features": ["No fixed fee", "Pay a share of what we save you", "Audit trail of avoided charges"],
-                "blurb": "Aligned pricing — we earn only when you save.",
+                "id": "starter", "name": "Starter", "price_inr": 7999, "price_inr_annual": 6399,
+                "unit": "mo", "highlight": False,
+                "features": [
+                    "Up to 500 shipments / month",
+                    "Full risk dossier per shipment",
+                    "Auto-fix internal defects",
+                    "Email + document workspace",
+                    "Community support",
+                ],
+                "blurb": "For teams proving the value of pre-clearance checks.",
+            },
+            {
+                "id": "growth", "name": "Growth", "price_inr": 23999, "price_inr_annual": 19199,
+                "unit": "mo", "highlight": True,
+                "features": [
+                    "Up to 2,000 shipments / month",
+                    "Everything in Starter",
+                    "Human-approved certificate drafts",
+                    "Immune-memory pattern learning",
+                    "Graph explorer + pattern library",
+                    "Priority support, 8h response",
+                ],
+                "blurb": "The working plan for a busy customs desk.",
+            },
+            {
+                "id": "enterprise", "name": "Enterprise", "price_inr": None, "price_inr_annual": None,
+                "unit": "mo", "highlight": False,
+                "features": [
+                    "Unlimited shipments",
+                    "Everything in Growth",
+                    "Private Neo4j immune memory",
+                    "SSO, audit log, data residency",
+                    "Custom broker + ERP integrations",
+                    "Dedicated success engineer, SLA",
+                ],
+                "blurb": "For brokers and shippers running at national scale.",
             },
         ],
         "avg_demurrage_per_day_inr": 5500,
+        "avg_hold_days": 4,
+        "per_shipment_inr": 149,
         "razorpay_ready": razorpay_client.is_configured(),
-        "note": "Fee shown against average demurrage avoided per prevented hold.",
+        "note": "Per-shipment fee shown against the demurrage cost of one prevented hold.",
     }
 
 
@@ -665,26 +752,214 @@ async def payments_verify_endpoint(payload: Dict[str, Any]):
     return {"status": "success"}
 
 
-@router.post("/voice", summary="Text Q&A for the voice widget (UI adapter)")
+@router.post("/voice", summary="Text Q&A for the dashboard assistant (UI adapter)")
 async def voice_ui_endpoint(payload: VoiceUiRequest):
     """
-    The dashboard's VoiceWidget does STT/TTS entirely in the browser (Web
-    Speech API) and only sends transcribed text here — no audio ever
-    reaches the backend, so this doesn't depend on Vertex AI or Vignesh's
-    local-model work (V5) at all.
+    Text-only Q&A for the Assistant panel — the browser handles speech itself,
+    so no audio reaches this endpoint.
+
+    The assistant is scoped to the whole workspace, not one shipment. It is
+    handed the full book (every shipment's current risk, plus aggregates by
+    importer, destination and HS code), the learned pattern library, a
+    structural summary of the immune-memory graph, and a map of the product's
+    own screens — so it can answer "how are all the Whitefield containers
+    doing?", "what does this graph tell me?", and "where do I do that?" as
+    well as questions about a single shipment.
+
+    ``page`` is the route the user is on, so an answer can be about what is
+    actually on screen. ``shipment_id`` is optional and only narrows focus.
+
+    Any LLM failure falls back to the deterministic per-shipment template, so
+    the panel always answers.
     """
-    shipment = shipment_store.get_shipment(payload.shipment_id)
-    if not shipment:
-        raise HTTPException(status_code=404, detail="Shipment not found")
-    shipment = _ensure_simulated(shipment)
-    answer = ui_adapter.voice_answer(shipment["ref"], shipment["latest_simulation"])
-    return {"answer": answer}
+    settings = VoiceSettings.from_env()
+
+    shipment = shipment_store.get_shipment(payload.shipment_id) if payload.shipment_id else None
+    simulation = None
+    fallback = "Ask about a shipment's hold risk, the patterns the engine has learned, or where to find something in Harbinger."
+    if shipment:
+        shipment = _ensure_simulated(shipment)
+        simulation = shipment["latest_simulation"]
+        fallback = ui_adapter.voice_answer(shipment["ref"], simulation, payload.question)
+
+    if settings.llm_answer_provider == "heuristic":
+        return {"answer": fallback, "source": "heuristic"}
+
+    # --- workspace-wide context ------------------------------------------
+    all_shipments = [_ensure_simulated(s) for s in shipment_store.list_shipments()]
+    focus_importer = workspace.find_importer(payload.question, all_shipments)
+
+    # _reason_codes re-runs engine.simulate() per shipment, and it is consulted
+    # once per shipment when building the workspace and again on every tool
+    # call. Memoise for the life of this request so one chat message doesn't
+    # trigger hundreds of simulations.
+    _codes_cache: Dict[str, List[str]] = {}
+
+    def reason_codes_cached(shipment_id: str) -> List[str]:
+        if shipment_id not in _codes_cache:
+            _codes_cache[shipment_id] = _reason_codes(shipment_id)
+        return _codes_cache[shipment_id]
+
+    graph_snapshot = None
+    try:
+        graph_snapshot = engine.graph_snapshot()
+    except Exception as e:  # graph is optional context, never fatal here
+        logger.warning("assistant: graph snapshot unavailable: %s", e)
+
+    facts: Dict[str, Any] = {
+        "workspace": workspace.build_workspace_context(
+            all_shipments,
+            reason_codes_for=reason_codes_cached,
+            patterns=engine.query_patterns({}),
+            graph=graph_snapshot,
+            focus_importer=focus_importer,
+        ),
+        "current_page": payload.page or "/",
+    }
+
+    # --- narrow, per-shipment context when one is in focus ---------------
+    if shipment and simulation:
+        facts["exists"] = True
+        facts["status"] = shipment.get("status", "")
+        facts["graph_context"] = fetch_graph_context(
+            payload.shipment_id,
+            hs_code=shipment.get("hs_code", ""),
+            country=shipment.get("destination_country", ""),
+            reason_codes=reason_codes_cached(payload.shipment_id),
+        )
+        facts["focused_shipment"] = {
+            "reference": shipment["ref"],
+            "importer": shipment["importer_name"],
+            "hs_code": shipment.get("hs_code"),
+            "destination": shipment.get("destination_country"),
+            "hold_risk_percent": simulation.get("score"),
+            "risk_band": simulation.get("band"),
+            "summary": simulation.get("summary"),
+            "recommended_next_action": simulation.get("recommended_default"),
+            "open_items": [
+                {"item": c.get("item"), "state": c.get("status"), "action": c.get("action")}
+                for c in (simulation.get("checklist") or [])
+            ],
+        }
+
+    # On-demand fetching for anything the prepacked context doesn't cover.
+    used: List[str] = []
+    dispatch = voice_tools.build_executor(_ensure_simulated, reason_codes_cached)
+
+    def executor(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        used.append(name)
+        return dispatch(name, args)
+
+    try:
+        answer = await build_llm_answer(
+            payload.shipment_id or "",
+            payload.question,
+            facts,
+            settings,
+            executor=executor,
+            tools=voice_tools.TOOL_SCHEMAS,
+        )
+        return {
+            "answer": answer,
+            "source": settings.llm_answer_provider,
+            "tools_used": used,
+        }
+    except Exception as e:
+        logger.warning("assistant LLM answer failed, using template: %s", e)
+        return {"answer": fallback, "source": "heuristic", "tools_used": used}
+
+
+class TranscribeRequest(BaseModel):
+    audio_base64: str = Field(..., description="Base64-encoded WAV recorded in the browser")
+
+
+@router.post("/transcribe", summary="Transcribe recorded mic audio (UI adapter)")
+async def transcribe_endpoint(payload: TranscribeRequest):
+    """Speech-to-text for the Assistant's mic button.
+
+    The browser's own SpeechRecognition API needs a cloud speech service and
+    fails immediately when that is blocked (offline, Brave/strict privacy
+    settings), which reads to the user as "the mic closes the moment I click
+    it". This routes the recording through whichever STT provider the engine
+    is configured with instead — the local faster-whisper container when
+    VOICE_PROVIDER=local — so the mic works on the same terms as the rest of
+    the voice pipeline.
+    """
+    settings = VoiceSettings.from_env()
+    try:
+        audio = base64.b64decode(payload.audio_base64, validate=True)
+    except (ValueError, binascii.Error) as e:
+        raise HTTPException(status_code=422, detail=f"invalid base64 audio: {e}")
+    if not audio:
+        raise HTTPException(status_code=422, detail="empty recording")
+
+    try:
+        provider = get_provider(settings)
+        # wavRecorder.js encodes real 16-bit PCM WAV in the browser.
+        transcript = await provider.transcribe(audio, "audio/wav")
+    except VoiceProviderError as e:
+        # A configuration/transport problem, not a caller mistake — say so
+        # plainly instead of returning an empty transcript that looks like
+        # the user simply said nothing.
+        raise HTTPException(status_code=503, detail=f"speech-to-text unavailable: {e}")
+
+    return {"transcript": (transcript or "").strip()}
+
+
+class SpeakRequest(BaseModel):
+    text: str = Field(..., description="Text to synthesize")
+
+
+@router.post("/speak", summary="Speak an assistant answer via the configured TTS (UI adapter)")
+async def speak_endpoint(payload: SpeakRequest):
+    """Text-to-speech for the Assistant's read-aloud toggle.
+
+    The browser's own speechSynthesis voices are robotic and vary per machine,
+    and on a locally-run stack there is a much better one already available —
+    the Kokoro container. This routes through whichever TTS provider the engine
+    is configured with, so VOICE_PROVIDER=local speaks in Kokoro's voice — or,
+    when TTS_PROVIDER points synthesis somewhere else (TTS_PROVIDER=smallest),
+    in Smallest AI Waves' voice, with STT left on whatever VOICE_PROVIDER says.
+
+    Returns base64 WAV rather than a binary body so the caller can hand it
+    straight to an <audio> element without object-URL bookkeeping.
+    """
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="nothing to speak")
+
+    settings = VoiceSettings.from_env()
+    try:
+        provider = get_tts_provider(settings)
+        audio = await provider.synthesize(text)
+    except VoiceProviderError as e:
+        raise HTTPException(status_code=503, detail=f"text-to-speech unavailable: {e}")
+
+    if audio.is_empty:
+        # text_only has no synthesizer; say so rather than returning silence
+        # the caller would try to play.
+        raise HTTPException(
+            status_code=503,
+            detail="the configured voice provider does not synthesize audio",
+        )
+    return {
+        "audio_base64": base64.b64encode(audio.data).decode("ascii"),
+        "mime": audio.mime,
+    }
 
 
 @router.get("/config", summary="Feature flags for pages outside the core demo (UI adapter)")
 async def config_endpoint():
     resend_ready = bool(os.getenv("RESEND_API_KEY"))
-    return {"resend_ready": resend_ready, "google_login_configured": google_auth.is_configured()}
+    settings = VoiceSettings.from_env()
+    return {
+        "resend_ready": resend_ready,
+        "google_login_configured": google_auth.is_configured(),
+        # text_only can't synthesize, so the UI falls back to browser speech
+        # rather than offering a read-aloud toggle that returns 503.
+        "server_tts": settings.provider != "text_only",
+        "voice_provider": settings.provider,
+    }
 
 
 # =========================================================================

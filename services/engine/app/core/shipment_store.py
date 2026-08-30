@@ -24,10 +24,16 @@ looks up requirements from the graph, not from anything in this file).
 """
 
 import copy
+import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 _SHIPMENTS: Dict[str, Dict[str, Any]] = {}
 _TOTALS = {"cost_avoided_inr": 0, "outcomes_recorded": 0}
+# Real in-process event log (simulations + recorded outcomes) behind the
+# dashboard's activity chart. Bounded so a long-running demo can't grow it
+# without limit.
+_ACTIVITY: List[Dict[str, Any]] = []
+_ACTIVITY_CAP = 2000
 _EMAIL_LOG: List[Dict[str, Any]] = [
     {
         "id": "msg_001",
@@ -153,8 +159,86 @@ def _seed() -> None:
               invoice_units=400, packing_units=400, has_certificate=True,
               demurrage_per_day_inr=4500, status="Ready to file"),
     ]
+    shipments.extend(_generate_book(start=48, count=44))
     for s in shipments:
         _SHIPMENTS[s["id"]] = s
+
+
+# --------------------------------------------------------------------------
+# Bulk demo book
+# --------------------------------------------------------------------------
+# The six hand-written shipments above cover one contradiction type each, so
+# every rule has a guaranteed example. A realistic control tower needs volume
+# too, so the rest of the book is generated from the same _make() factory —
+# these are ordinary shipments, not special cases, and they run through the
+# identical engine path. Deterministic seed so the demo is reproducible.
+
+_IMPORTERS = [
+    ("Peenya Electronics Pvt Ltd", "Shenzhen TechWorks Ltd"),
+    ("Bommasandra Pharma Pvt Ltd", "Hangzhou Lifescience Co"),
+    ("Whitefield Textiles Pvt Ltd", "Guangzhou Textile Mills"),
+    ("Hosur Auto Components Ltd", "Ningbo Precision Parts Co"),
+    ("Chennai Marine Exports Pvt Ltd", "Qingdao Ocean Foods Ltd"),
+    ("Pune Instrumentation Pvt Ltd", "Suzhou Sensor Systems Co"),
+    ("Okhla Apparel House Pvt Ltd", "Dongguan Garment Works"),
+    ("Kochi Spice Traders Pvt Ltd", "Colombo Spice Exporters"),
+]
+
+# HS codes the graph actually has certificate rules seeded for come first —
+# using anything else would mean the certificate check silently never fires.
+_LANES = [
+    ("8471.30", "DE", "CNSZX", "DEHAM", "Laptop computers, 14-inch"),
+    ("8471.30", "DE", "CNSHA", "DEHAM", "Networking hardware"),
+    ("8504.41", "DE", "CNSHA", "DEHAM", "Power adapters"),
+    ("8504.41", "DE", "CNNGB", "DEBRV", "Switch-mode power supplies"),
+    ("8471.30", "DE", "CNSZX", "NLRTM", "Tablet computers"),
+    ("8504.41", "DE", "CNSHA", "DEHAM", "Industrial converters"),
+]
+
+_STATUSES = ["Draft", "Draft", "Draft", "Ready to file", "Ready to file", "Filed"]
+
+
+def _generate_book(start: int, count: int) -> List[Dict[str, Any]]:
+    import random
+
+    rng = random.Random(2026)
+    out: List[Dict[str, Any]] = []
+    for i in range(count):
+        n = start + i
+        sid = f"shp-{n:04d}"
+        importer, exporter = _IMPORTERS[i % len(_IMPORTERS)]
+        hs_code, country, pol, pod, goods = _LANES[i % len(_LANES)]
+
+        units = rng.choice([120, 180, 220, 250, 300, 360, 400, 480, 500, 640])
+        # Roughly a third of a real book has some defect; the rest is clean.
+        defect = rng.choices(
+            ["none", "units", "cert", "hs"], weights=[62, 14, 16, 8], k=1
+        )[0]
+
+        packing_units = units - rng.choice([10, 15, 20, 25]) if defect == "units" else units
+        has_certificate = defect != "cert"
+        invoice_hs_code = "8517.62" if defect == "hs" else None
+
+        out.append(
+            _make(
+                sid,
+                f"SIRIUS-2026-{n:04d}",
+                importer,
+                exporter,
+                hs_code,
+                country,
+                goods,
+                pol,
+                pod,
+                invoice_units=units,
+                packing_units=packing_units,
+                invoice_hs_code=invoice_hs_code,
+                has_certificate=has_certificate,
+                demurrage_per_day_inr=rng.choice([4100, 4500, 5000, 5300, 6200, 7400, 8400]),
+                status=rng.choice(_STATUSES) if defect == "none" else "Draft",
+            )
+        )
+    return out
 
 
 _seed()
@@ -258,6 +342,41 @@ def record_outcome_event() -> None:
 
 def get_totals() -> Dict[str, int]:
     return dict(_TOTALS)
+
+
+def record_activity(kind: str, shipment_id: str = "") -> None:
+    """Append one real engine event (a simulation or a recorded outcome).
+
+    Backs the dashboard's activity chart. This is a genuine in-process event
+    log of what the engine actually did this session — not a synthetic series.
+    """
+    _ACTIVITY.append(
+        {
+            "kind": kind,
+            "shipment_id": shipment_id,
+            "at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        }
+    )
+    if len(_ACTIVITY) > _ACTIVITY_CAP:
+        del _ACTIVITY[: len(_ACTIVITY) - _ACTIVITY_CAP]
+
+
+def activity_series(days: int = 7) -> List[Dict[str, Any]]:
+    """Per-day counts of engine events for the last ``days`` days (oldest first)."""
+    today = _dt.datetime.now(_dt.timezone.utc).date()
+    buckets = {today - _dt.timedelta(days=i): {"checks": 0, "outcomes": 0} for i in range(days)}
+    for event in _ACTIVITY:
+        try:
+            day = _dt.datetime.fromisoformat(event["at"]).date()
+        except ValueError:
+            continue
+        if day in buckets:
+            key = "outcomes" if event["kind"] == "outcome" else "checks"
+            buckets[day][key] += 1
+    return [
+        {"date": day.isoformat(), "label": day.strftime("%d %b"), **counts}
+        for day, counts in sorted(buckets.items())
+    ]
 
 
 def list_email_logs() -> List[Dict[str, Any]]:
