@@ -35,6 +35,8 @@ const EDGE_DEFAULT = "hsl(220 12% 60%)";
 const GRID_DOT = "hsl(220 10% 70%)";
 
 const NODE_RADIUS = 9;
+const NODE_BOX_W = 132;
+const NODE_BOX_H = 44;
 
 // Node labels that are machine identifiers (HS codes like "8471.30",
 // container ids like "MSKU1234567") get the mono face; human-readable
@@ -114,17 +116,28 @@ export const GraphPanel = ({ compact = false }) => {
   }, []);
 
   const fit = useCallback(() => {
-    flowRef.current?.fitView({ padding: 0.18, duration: 0 });
+    const inst = flowRef.current;
+    const el = wrapRef.current;
+    if (!inst || !el || el.clientHeight < 8 || el.clientWidth < 8) return;
+    inst.fitView({ padding: 0.18, duration: 0 });
   }, []);
 
   // React Flow's initial fitView can run before the panel has real dimensions
-  // (it lives in a sticky flex column / a Sheet that mounts hidden). Re-fit on
-  // init and whenever the container resizes so the graph never renders blank.
+  // (it lives in a sticky flex column / a Sheet that mounts hidden) or before
+  // the custom nodes have reported their size. Re-fit on container resize and
+  // poll briefly after mount so the graph never renders blank / off-canvas.
   useEffect(() => {
-    if (!wrapRef.current || typeof ResizeObserver === "undefined") return undefined;
-    const ro = new ResizeObserver(() => requestAnimationFrame(fit));
-    ro.observe(wrapRef.current);
-    return () => ro.disconnect();
+    if (!wrapRef.current) return undefined;
+    const timers = [80, 200, 450, 900].map((ms) => setTimeout(fit, ms));
+    let ro;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => requestAnimationFrame(fit));
+      ro.observe(wrapRef.current);
+    }
+    return () => {
+      timers.forEach(clearTimeout);
+      ro?.disconnect();
+    };
   }, [fit]);
 
   const { rfNodes, rfEdges } = useMemo(() => {
@@ -136,6 +149,11 @@ export const GraphPanel = ({ compact = false }) => {
         id: n.id,
         type: "cg",
         position: pos,
+        // Explicit dimensions so React Flow doesn't hold nodes at
+        // visibility:hidden waiting on an internal measure that can race the
+        // first paint when the dock mounts inside a tall sticky column.
+        width: NODE_BOX_W,
+        height: NODE_BOX_H,
         data: { label: n.label, type: n.type, isNew: newIds.nodes.includes(n.id) },
         draggable: true,
       };
