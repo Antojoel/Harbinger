@@ -39,6 +39,8 @@ from integrations import razorpay_client, google_auth
 from dataclasses import replace as _dc_replace
 
 from voice import answer_voice_query
+from voice.answer import fetch_graph_context, fetch_shipment_facts
+from voice.llm_answer import build_llm_answer
 from voice.config import VALID_LLM_ANSWER_PROVIDERS, VALID_PROVIDERS, VoiceSettings
 
 router = APIRouter()
@@ -743,20 +745,66 @@ async def payments_verify_endpoint(payload: Dict[str, Any]):
     return {"status": "success"}
 
 
-@router.post("/voice", summary="Text Q&A for the voice widget (UI adapter)")
+@router.post("/voice", summary="Text Q&A for the dashboard assistant (UI adapter)")
 async def voice_ui_endpoint(payload: VoiceUiRequest):
     """
-    The dashboard's VoiceWidget does STT/TTS entirely in the browser (Web
-    Speech API) and only sends transcribed text here — no audio ever
-    reaches the backend, so this doesn't depend on Vertex AI or Vignesh's
-    local-model work (V5) at all.
+    Text-only Q&A for the dashboard's Assistant panel — the browser handles
+    speech itself (Web Speech API), so no audio ever reaches this endpoint.
+
+    When ``LLM_ANSWER_PROVIDER`` is configured (openai/gemini) the answer is
+    written by that model, grounded in the shipment's latest risk check *and*
+    the surrounding knowledge graph (the lane's certificate requirements, each
+    matched pattern's rejection reason, what is known to resolve it, and how
+    widely it has been seen). Any LLM failure — missing key, network error,
+    malformed response — falls back to the deterministic template, so the
+    panel always answers.
     """
     shipment = shipment_store.get_shipment(payload.shipment_id)
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
     shipment = _ensure_simulated(shipment)
-    answer = ui_adapter.voice_answer(shipment["ref"], shipment["latest_simulation"], payload.question)
-    return {"answer": answer}
+
+    simulation = shipment["latest_simulation"]
+    settings = VoiceSettings.from_env()
+    fallback = ui_adapter.voice_answer(shipment["ref"], simulation, payload.question)
+
+    if settings.llm_answer_provider == "heuristic":
+        return {"answer": fallback, "source": "heuristic"}
+
+    facts = fetch_shipment_facts(payload.shipment_id)
+    facts = {
+        **facts,
+        # Resolved by lane (HS code + destination) and by the reason codes this
+        # risk check actually raised — a dashboard shipment isn't a graph node,
+        # but the rules and learned patterns that apply to it are.
+        "graph_context": fetch_graph_context(
+            payload.shipment_id,
+            hs_code=shipment.get("hs_code", ""),
+            country=shipment.get("destination_country", ""),
+            reason_codes=_reason_codes(payload.shipment_id),
+        ),
+        # The dashboard's risk check is richer than the graph alone (it knows
+        # the current score, band, and per-item checklist for THIS filing),
+        # so hand the model that too rather than only historical patterns.
+        "simulation": {
+            "reference": shipment["ref"],
+            "hold_risk_percent": simulation.get("score"),
+            "risk_band": simulation.get("band"),
+            "summary": simulation.get("summary"),
+            "recommended_next_action": simulation.get("recommended_default"),
+            "open_items": [
+                {"item": c.get("item"), "state": c.get("status"), "action": c.get("action")}
+                for c in (simulation.get("checklist") or [])
+            ],
+        },
+    }
+
+    try:
+        answer = await build_llm_answer(payload.shipment_id, payload.question, facts, settings)
+        return {"answer": answer, "source": settings.llm_answer_provider}
+    except Exception as e:
+        logger.warning("assistant LLM answer failed, using template: %s", e)
+        return {"answer": fallback, "source": "heuristic"}
 
 
 @router.get("/config", summary="Feature flags for pages outside the core demo (UI adapter)")

@@ -6,7 +6,12 @@ import base64
 import binascii
 import logging
 
-from voice.answer import build_spoken_answer, fetch_shipment_facts, format_heuristic_answer
+from voice.answer import (
+    build_spoken_answer,
+    fetch_graph_context,
+    fetch_shipment_facts,
+    format_heuristic_answer,
+)
 from voice.config import VoiceSettings
 from voice.llm_answer import build_llm_answer
 from voice.providers import VoiceProviderError, get_provider
@@ -87,6 +92,11 @@ async def _build_answer(shipment_id: str, transcript: str, settings: VoiceSettin
         transcript[:120],
     )
     facts = fetch_shipment_facts(shipment_id)
+    # The LLM path gets the surrounding knowledge-graph state as well (lane
+    # certificate requirements, each pattern's rejection reason and known
+    # resolution), so it can propose a grounded fix instead of only restating
+    # the risk. The heuristic fallback below ignores it, as before.
+    facts = {**facts, "graph_context": fetch_graph_context(shipment_id)}
     try:
         return await build_llm_answer(shipment_id, transcript, facts, settings)
     except VoiceProviderError as exc:
