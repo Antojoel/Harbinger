@@ -59,16 +59,16 @@ const CheckRow = ({ row, onApprove, onEmailDraft, busy, resolved }) => {
         resolved ? "opacity-70" : ""
       }`}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex min-w-0 items-start gap-2.5">
         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT_TONE[tone]}`} />
-        <div>
+        <div className="min-w-0">
           <div
-            className={`flex items-center gap-1.5 text-sm ${
+            className={`flex items-start gap-1.5 text-sm ${
               resolved ? "text-ok-foreground line-through decoration-ok-foreground/40" : ""
             }`}
           >
-            {resolved && <Check className="h-3.5 w-3.5 shrink-0 text-ok" />}
-            {row.item}
+            {resolved && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ok" />}
+            <span>{row.item}</span>
           </div>
           <div className={`text-[11px] ${resolved ? "text-ok-foreground/80" : "text-muted-foreground"}`}>
             {label}
@@ -77,7 +77,7 @@ const CheckRow = ({ row, onApprove, onEmailDraft, busy, resolved }) => {
       </div>
       {!resolved && row.action === "approve_fix" && (
         <Button
-          size="sm" className="h-8 gap-1.5" onClick={onApprove} disabled={busy}
+          size="sm" className="h-8 shrink-0 gap-1.5" onClick={onApprove} disabled={busy}
           data-testid="approve-fix-button"
         >
           <Wand2 className="h-3.5 w-3.5" /> Approve fix
@@ -85,10 +85,10 @@ const CheckRow = ({ row, onApprove, onEmailDraft, busy, resolved }) => {
       )}
       {!resolved && row.action === "human_draft" && (
         <Button
-          size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => onEmailDraft(row)}
+          size="sm" variant="outline" className="h-8 shrink-0 gap-1.5" onClick={() => onEmailDraft(row)}
           data-testid="human-draft-button"
         >
-          <Mail className="h-3.5 w-3.5" /> Draft to officer
+          <Mail className="h-3.5 w-3.5" /> Draft
         </Button>
       )}
     </div>
@@ -319,9 +319,9 @@ export default function ShipmentDetail() {
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start">
         {/* Documents */}
-        <Card className="cg-rise p-4">
+        <Card className="cg-rise p-4 lg:self-start">
           <div className="mb-3 flex items-center gap-2 font-display font-medium">
             <FileText className="h-4 w-4 text-primary" /> Documents
           </div>

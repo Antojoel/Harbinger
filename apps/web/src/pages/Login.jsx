@@ -17,7 +17,7 @@ function LoopDiagram({ className = "" }) {
     { key: "Remember", x: 306, color: "hsl(var(--chart-4))", desc: "learn the rejection" },
   ];
   return (
-    <figure className={`mt-10 ${className}`}>
+    <figure className={`mt-8 ${className}`}>
       <svg
         viewBox="0 0 340 118"
         className="w-full max-w-[340px] overflow-visible"
@@ -153,8 +153,9 @@ export default function Login() {
   return (
     <div className="flex min-h-screen flex-col bg-background md:grid md:grid-cols-2 lg:grid-cols-[1.05fr_0.95fr]">
       {/* Brand / value-prop side — stacks above the card under md */}
-      <aside className="relative flex flex-col justify-between gap-10 overflow-hidden border-b border-border bg-muted/40 p-8 md:border-b-0 md:border-r lg:p-14">
-        <div aria-hidden="true" className="cg-grid-texture pointer-events-none absolute inset-0 opacity-70" />
+      <aside className="relative flex flex-col justify-between gap-10 overflow-hidden border-b border-border bg-card p-8 md:border-b-0 md:border-r lg:p-14">
+        <div aria-hidden="true" className="cg-grid-texture pointer-events-none absolute inset-0 opacity-60" />
+        <div aria-hidden="true" className="cg-header-wash pointer-events-none absolute inset-x-0 top-0 h-64" />
 
         <div className="relative flex items-center gap-3 cg-rise">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">

@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useRef, useCallback } from "react";
 import ReactFlow, { Background, Controls, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from "d3-force";
@@ -105,11 +105,27 @@ function layoutWithForces(nodes, edges) {
 
 export const GraphPanel = ({ compact = false }) => {
   const { graph, newIds, refresh } = useGraph();
+  const flowRef = useRef(null);
+  const wrapRef = useRef(null);
 
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const fit = useCallback(() => {
+    flowRef.current?.fitView({ padding: 0.18, duration: 0 });
+  }, []);
+
+  // React Flow's initial fitView can run before the panel has real dimensions
+  // (it lives in a sticky flex column / a Sheet that mounts hidden). Re-fit on
+  // init and whenever the container resizes so the graph never renders blank.
+  useEffect(() => {
+    if (!wrapRef.current || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => requestAnimationFrame(fit));
+    ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, [fit]);
 
   const { rfNodes, rfEdges } = useMemo(() => {
     const positions = layoutWithForces(graph.nodes, graph.edges);
@@ -147,13 +163,22 @@ export const GraphPanel = ({ compact = false }) => {
     return { rfNodes, rfEdges };
   }, [graph, newIds]);
 
+  useEffect(() => {
+    if (flowRef.current) requestAnimationFrame(fit);
+  }, [rfNodes.length, fit]);
+
   return (
-    <div className="h-full w-full" data-testid="immune-memory-graph-canvas">
+    <div ref={wrapRef} className="h-full w-full" data-testid="immune-memory-graph-canvas">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
         nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.18 }}
+        onInit={(inst) => {
+          flowRef.current = inst;
+          requestAnimationFrame(() => inst.fitView({ padding: 0.18, duration: 0 }));
+        }}
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}

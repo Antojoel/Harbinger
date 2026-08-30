@@ -321,67 +321,75 @@ function AddShipmentDialog({ open, onOpenChange, onCreated }) {
 const BAND_TEXT = { high: "text-danger-foreground", medium: "text-warn-foreground", low: "text-ok-foreground" };
 const bandOf = (n) => (n >= 60 ? "high" : n >= 25 ? "medium" : "low");
 
+const STAT_LABEL = "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground";
+
+function MiniStat({ label, value, sub, valueClass = "", delay }) {
+  return (
+    <Card className="cg-rise flex flex-col justify-between p-4" style={delay}>
+      <span className={STAT_LABEL}>{label}</span>
+      <span className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</span>
+      <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">{sub}</span>
+    </Card>
+  );
+}
+
 function ControlBand({ stats }) {
   if (!stats) {
     return (
-      <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
-        <Skeleton className="h-[132px] w-full rounded-lg" />
-        <div className="grid grid-cols-3 gap-3">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[132px] w-full rounded-lg" />)}
-        </div>
+      <section className="grid gap-3 grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr]">
+        <Skeleton className="col-span-2 h-[128px] w-full rounded-lg lg:col-span-1" />
+        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[128px] w-full rounded-lg" />)}
       </section>
     );
   }
   const atRisk = stats.at_risk;
   const avg = stats.avg_hold_probability;
   return (
-    <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+    <section className="grid grid-cols-2 gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr]">
       {/* hero — cost avoided */}
-      <Card className="cg-rise flex flex-col justify-between p-5">
+      <Card className="cg-rise col-span-2 flex flex-col justify-between p-5 lg:col-span-1">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-            Cost avoided
-          </span>
+          <span className={STAT_LABEL}>Cost avoided</span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-2 py-0.5 text-[11px] font-medium text-ok-foreground">
             <span className="h-1.5 w-1.5 rounded-full bg-ok" />
             demurrage prevented
           </span>
         </div>
-        <div className="mt-3 font-mono text-4xl font-semibold tabular-nums tracking-tight text-foreground sm:text-5xl">
+        <div className="mt-3 font-mono text-4xl font-semibold tabular-nums tracking-tight text-foreground">
           {fmtINR(stats.cost_avoided_inr)}
         </div>
         <div className="mt-2 text-xs text-muted-foreground">
-          across <span className="font-mono tabular-nums">{stats.outcomes_recorded}</span> recorded outcome
-          {stats.outcomes_recorded === 1 ? "" : "s"}
+          {stats.outcomes_recorded > 0 ? (
+            <>
+              across <span className="font-mono tabular-nums">{stats.outcomes_recorded}</span> recorded outcome
+              {stats.outcomes_recorded === 1 ? "" : "s"}
+            </>
+          ) : (
+            "Record a real outcome to start the ledger"
+          )}
         </div>
       </Card>
 
-      {/* ganged trio */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="cg-rise flex flex-col justify-between p-4" style={stagger(1)}>
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Shipments</span>
-          <span className="mt-2 font-mono text-2xl font-semibold tabular-nums">{stats.total_shipments}</span>
-          <span className="mt-1 text-[11px] text-muted-foreground">in the book</span>
-        </Card>
-        <Card className="cg-rise flex flex-col justify-between p-4" style={stagger(2)}>
-          <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-            At risk
-          </span>
-          <span className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${atRisk > 0 ? "text-warn" : ""}`}>
-            {atRisk}
-          </span>
-          <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-            {atRisk > 0 && <AlertTriangle className="h-3 w-3 text-warn" />} hold risk ≥ 25
-          </span>
-        </Card>
-        <Card className="cg-rise flex flex-col justify-between p-4" style={stagger(3)}>
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Avg hold risk</span>
-          <span className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${BAND_TEXT[bandOf(avg)]}`}>
-            {avg}%
-          </span>
-          <span className="mt-1 text-[11px] capitalize text-muted-foreground">{bandOf(avg)} band</span>
-        </Card>
-      </div>
+      <MiniStat
+        label="Shipments"
+        value={stats.total_shipments}
+        sub="in the book"
+        delay={stagger(1)}
+      />
+      <MiniStat
+        label="At risk"
+        value={atRisk}
+        valueClass={atRisk > 0 ? "text-warn" : ""}
+        sub={<>{atRisk > 0 && <AlertTriangle className="h-3 w-3 text-warn" />} hold risk ≥ 25</>}
+        delay={stagger(2)}
+      />
+      <MiniStat
+        label="Avg risk"
+        value={`${avg}%`}
+        valueClass={BAND_TEXT[bandOf(avg)]}
+        sub={<span className="capitalize">{bandOf(avg)} band</span>}
+        delay={stagger(3)}
+      />
     </section>
   );
 }
