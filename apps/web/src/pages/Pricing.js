@@ -70,7 +70,7 @@ export default function Pricing() {
         key: order.key_id,
         amount: order.amount,
         currency: order.currency,
-        name: "ClearanceGuard",
+        name: "Harbinger",
         description: tier.name,
         order_id: order.order_id,
         handler: async (resp) => {

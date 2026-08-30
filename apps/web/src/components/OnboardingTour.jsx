@@ -9,13 +9,13 @@ import { LayoutGrid, Play, Sparkles, Network, Mic } from "lucide-react";
 const STEPS = [
   {
     icon: LayoutGrid,
-    title: "Welcome to the Control Tower",
-    body: "Every shipment you're tracking shows up here with its current hold-risk band. Click any row to open its full dossier.",
+    title: "Welcome to Harbinger",
+    body: "Overview is your daily read: how many shipments were checked, how many are at risk, and what the engine has learned so far.",
   },
   {
     icon: Play,
-    title: "Simulate before you file",
-    body: "Hit Simulate to get a hold-risk score with specific reasons — before customs ever sees the paperwork.",
+    title: "Check before you file",
+    body: "Open any shipment and run Risk Check to get a hold-risk score with specific reasons — before customs ever sees the paperwork.",
   },
   {
     icon: Sparkles,
@@ -25,12 +25,12 @@ const STEPS = [
   {
     icon: Network,
     title: "Watch the memory grow",
-    body: "Recording a real outcome teaches the immune-memory graph on the right — the same failure gets caught faster next time, for every shipment.",
+    body: "Recording a real outcome teaches the immune-memory graph. Open Graph Explorer to watch it — the same failure gets caught faster next time, for every shipment.",
   },
   {
     icon: Mic,
-    title: "Ask it anything",
-    body: "The mic button in the corner answers questions about any shipment's risk out loud. Pricing's in the left nav whenever you're ready.",
+    title: "Ask the Assistant",
+    body: "The Assistant button in the header answers questions about any shipment's risk, grounded in that shipment's live analysis.",
   },
 ];
 

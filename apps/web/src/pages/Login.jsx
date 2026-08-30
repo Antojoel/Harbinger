@@ -22,7 +22,7 @@ function LoopDiagram({ className = "" }) {
         viewBox="0 0 340 118"
         className="w-full max-w-[340px] overflow-visible"
         role="img"
-        aria-label="The ClearanceGuard loop: predict a shipment's hold risk, prevent the hold, then remember the rejection so the next prediction is sharper."
+        aria-label="The Harbinger loop: predict a shipment's hold risk, prevent the hold, then remember the rejection so the next prediction is sharper."
       >
         <defs>
           <marker
@@ -161,7 +161,7 @@ export default function Login() {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
             <ShieldCheck className="h-5 w-5" />
           </div>
-          <span className="font-display text-lg font-semibold tracking-tight">ClearanceGuard</span>
+          <span className="font-display text-lg font-semibold tracking-tight">Harbinger</span>
         </div>
 
         <div className="relative max-w-md cg-rise" style={{ animationDelay: "60ms" }}>

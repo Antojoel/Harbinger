@@ -343,7 +343,7 @@ export default function Integrations() {
       <header className="cg-rise">
         <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Integrations</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ClearanceGuard is a pluggable engine — connect any software over REST or MCP. The logistics
+          Harbinger is a pluggable engine — connect any software over REST or MCP. The logistics
           vertical you see here is the proof, not the whole product.
         </p>
       </header>

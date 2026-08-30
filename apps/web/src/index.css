@@ -4,8 +4,8 @@
 @tailwind utilities;
 
 /* ==========================================================================
-   Harbinger / ClearanceGuard — "Operational Swiss" design tokens
-   Light-first. One cobalt accent. Semantic risk scale. Precise motion.
+   Harbinger — design tokens
+   Light-first product console. Indigo brand, semantic risk scale.
    ========================================================================== */
 
 @layer base {
@@ -15,54 +15,54 @@
         --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
         /* --- surfaces & ink --- */
-        --background: 220 24% 98.5%;
-        --foreground: 222 28% 12%;
+        --background: 228 30% 97.5%;
+        --foreground: 228 26% 14%;
         --card: 0 0% 100%;
-        --card-foreground: 222 28% 12%;
+        --card-foreground: 228 26% 14%;
         --popover: 0 0% 100%;
-        --popover-foreground: 222 28% 12%;
+        --popover-foreground: 228 26% 14%;
 
-        --muted: 220 18% 95%;
-        --muted-foreground: 220 12% 42%;
-        --accent: 222 72% 96%;
-        --accent-foreground: 222 58% 40%;
+        --muted: 228 22% 96%;
+        --muted-foreground: 228 10% 46%;
+        --accent: 243 90% 97%;
+        --accent-foreground: 243 62% 50%;
 
-        --border: 220 18% 90%;
-        --input: 220 18% 88%;
-        --ring: 222 76% 52%;
+        --border: 228 20% 91%;
+        --input: 228 20% 89%;
+        --ring: 243 75% 59%;
 
         /* --- brand --- */
-        --primary: 222 76% 52%;
+        --primary: 243 75% 59%;
         --primary-foreground: 0 0% 100%;
-        --secondary: 220 18% 94%;
-        --secondary-foreground: 222 28% 18%;
+        --secondary: 228 22% 95%;
+        --secondary-foreground: 228 26% 20%;
 
         /* --- semantic risk / status scale --- */
-        --ok: 172 64% 34%;
-        --ok-soft: 172 52% 94%;
-        --ok-foreground: 172 66% 24%;
-        --warn: 34 92% 46%;
-        --warn-soft: 36 92% 93%;
-        --warn-foreground: 30 90% 30%;
-        --danger: 356 68% 50%;
-        --danger-soft: 356 78% 96%;
-        --danger-foreground: 356 66% 40%;
-        --destructive: 356 68% 50%;
+        --ok: 158 64% 38%;
+        --ok-soft: 152 60% 95%;
+        --ok-foreground: 160 70% 26%;
+        --warn: 35 92% 50%;
+        --warn-soft: 40 95% 94%;
+        --warn-foreground: 28 84% 34%;
+        --danger: 0 74% 56%;
+        --danger-soft: 0 88% 96.5%;
+        --danger-foreground: 0 68% 44%;
+        --destructive: 0 74% 56%;
         --destructive-foreground: 0 0% 100%;
 
         /* --- data viz --- */
-        --chart-1: 222 76% 55%;
-        --chart-2: 172 64% 38%;
-        --chart-3: 34 92% 52%;
-        --chart-4: 262 52% 58%;
-        --chart-5: 220 12% 55%;
+        --chart-1: 243 75% 62%;
+        --chart-2: 158 64% 42%;
+        --chart-3: 35 92% 55%;
+        --chart-4: 0 74% 60%;
+        --chart-5: 262 66% 62%;
 
-        --radius: 0.625rem;
+        --radius: 0.75rem;
 
         /* --- elevation --- */
-        --shadow-sm: 0 1px 2px hsl(222 28% 12% / 0.05), 0 1px 1px hsl(222 28% 12% / 0.04);
-        --shadow-md: 0 6px 20px -6px hsl(222 28% 12% / 0.12), 0 2px 6px -2px hsl(222 28% 12% / 0.07);
-        --shadow-lg: 0 20px 50px -12px hsl(222 28% 12% / 0.22);
+        --shadow-sm: 0 1px 2px hsl(228 26% 14% / 0.04), 0 1px 3px hsl(228 26% 14% / 0.05);
+        --shadow-md: 0 6px 20px -6px hsl(228 26% 14% / 0.10), 0 2px 6px -2px hsl(228 26% 14% / 0.06);
+        --shadow-lg: 0 20px 50px -12px hsl(228 26% 14% / 0.20);
 
         /* --- motion --- */
         --dur-fast: 120ms;
@@ -72,44 +72,44 @@
     }
 
     .dark {
-        --background: 224 34% 8%;
-        --foreground: 220 22% 96%;
-        --card: 224 28% 11%;
-        --card-foreground: 220 22% 96%;
-        --popover: 224 30% 10%;
-        --popover-foreground: 220 22% 96%;
+        --background: 230 28% 8%;
+        --foreground: 228 24% 96%;
+        --card: 230 24% 11.5%;
+        --card-foreground: 228 24% 96%;
+        --popover: 230 26% 10.5%;
+        --popover-foreground: 228 24% 96%;
 
-        --muted: 224 22% 16%;
-        --muted-foreground: 220 14% 62%;
-        --accent: 224 44% 18%;
-        --accent-foreground: 221 84% 82%;
+        --muted: 230 20% 17%;
+        --muted-foreground: 228 12% 64%;
+        --accent: 243 40% 20%;
+        --accent-foreground: 243 90% 84%;
 
-        --border: 224 20% 20%;
-        --input: 224 20% 24%;
-        --ring: 221 84% 66%;
+        --border: 230 18% 21%;
+        --input: 230 18% 25%;
+        --ring: 243 90% 72%;
 
-        --primary: 221 84% 66%;
-        --primary-foreground: 224 40% 10%;
-        --secondary: 224 22% 18%;
-        --secondary-foreground: 220 22% 92%;
+        --primary: 243 88% 70%;
+        --primary-foreground: 230 34% 10%;
+        --secondary: 230 20% 19%;
+        --secondary-foreground: 228 24% 92%;
 
-        --ok: 172 58% 46%;
-        --ok-soft: 172 40% 16%;
-        --ok-foreground: 172 60% 72%;
-        --warn: 34 90% 58%;
-        --warn-soft: 34 50% 16%;
-        --warn-foreground: 36 92% 72%;
-        --danger: 356 72% 62%;
-        --danger-soft: 356 40% 18%;
-        --danger-foreground: 356 82% 78%;
-        --destructive: 356 72% 60%;
+        --ok: 158 58% 48%;
+        --ok-soft: 158 40% 16%;
+        --ok-foreground: 156 62% 72%;
+        --warn: 35 90% 60%;
+        --warn-soft: 35 46% 17%;
+        --warn-foreground: 40 92% 74%;
+        --danger: 0 78% 66%;
+        --danger-soft: 0 44% 19%;
+        --danger-foreground: 0 86% 78%;
+        --destructive: 0 76% 62%;
         --destructive-foreground: 0 0% 100%;
 
-        --chart-1: 221 84% 68%;
-        --chart-2: 172 58% 50%;
-        --chart-3: 34 90% 60%;
-        --chart-4: 262 60% 68%;
-        --chart-5: 220 14% 60%;
+        --chart-1: 243 88% 72%;
+        --chart-2: 158 58% 52%;
+        --chart-3: 35 90% 62%;
+        --chart-4: 0 78% 68%;
+        --chart-5: 262 76% 72%;
 
         --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
         --shadow-md: 0 8px 24px -8px hsl(0 0% 0% / 0.5), 0 2px 6px -2px hsl(0 0% 0% / 0.35);

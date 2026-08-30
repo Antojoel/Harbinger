@@ -172,6 +172,7 @@ def _run_simulation_for_shipment(shipment_id: str, documents: Dict[str, Any],
 
     if stored:
         shipment_store.set_latest_simulation(shipment_id, result)
+        shipment_store.record_activity("check", shipment_id)
 
     return result
 
@@ -401,13 +402,45 @@ async def stats_endpoint():
     at_risk = sum(1 for s in shipments if s["latest_simulation"]["score"] >= 25)
     avg = round(sum(s["latest_simulation"]["score"] for s in shipments) / total) if total else 0
     totals = shipment_store.get_totals()
+
+    bands = {"low": 0, "medium": 0, "high": 0}
+    for s in shipments:
+        bands[s["latest_simulation"].get("band", "low")] += 1
+
+    # How often each reason code actually fired across the current book —
+    # real counts from live simulations, not a stored leaderboard.
+    reason_counts: Dict[str, int] = {}
+    for s in shipments:
+        for item in s["latest_simulation"].get("checklist", []) or []:
+            code = item.get("ref")
+            if code:
+                reason_counts[code] = reason_counts.get(code, 0) + 1
+    top_reasons = sorted(
+        ({"code": c, "count": n} for c, n in reason_counts.items()),
+        key=lambda r: r["count"],
+        reverse=True,
+    )
+
+    patterns = engine.query_patterns({})
+
     return {
         "total_shipments": total,
         "at_risk": at_risk,
         "avg_hold_probability": avg,
         "cost_avoided_inr": totals["cost_avoided_inr"],
         "outcomes_recorded": totals["outcomes_recorded"],
+        "patterns_learned": len(patterns),
+        "risk_bands": bands,
+        "top_reasons": top_reasons,
     }
+
+
+@router.get("/activity", summary="Per-day engine activity for the dashboard chart (UI adapter)")
+async def activity_endpoint(days: int = Query(7, ge=1, le=30)):
+    """Real per-day counts of simulations run and outcomes recorded in this
+    process. Empty days are returned as zeroes, never back-filled with
+    invented numbers."""
+    return {"series": shipment_store.activity_series(days)}
 
 
 @router.post("/shipments", summary="Add a real shipment to the dashboard catalog and simulate it (UI adapter)")
@@ -610,6 +643,7 @@ async def outcome_ui_endpoint(payload: OutcomeRequest):
         credited_inr = shipment["demurrage_per_day_inr"] * 2
         shipment_store.record_credit(credited_inr)
     shipment_store.record_outcome_event()
+    shipment_store.record_activity("outcome", payload.shipment_id)
     shipment_store.set_status(payload.shipment_id, payload.actual_result)
 
     result = dict(engine_result)

@@ -7,8 +7,12 @@ import { Layout } from "@/components/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
 import OnboardingTour from "@/components/OnboardingTour";
-import Dashboard from "@/pages/Dashboard";
+import Overview from "@/pages/Overview";
+import Shipments from "@/pages/Shipments";
+import RiskCheck from "@/pages/RiskCheck";
 import ShipmentDetail from "@/pages/ShipmentDetail";
+import Patterns from "@/pages/Patterns";
+import GraphExplorer from "@/pages/GraphExplorer";
 import Pricing from "@/pages/Pricing";
 import EmailPage from "@/pages/EmailPage";
 import Integrations from "@/pages/Integrations";
@@ -36,8 +40,12 @@ function AuthGate() {
     <GraphProvider>
       <Layout>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Overview />} />
+          <Route path="/shipments" element={<Shipments />} />
+          <Route path="/risk-check" element={<RiskCheck />} />
           <Route path="/shipment/:id" element={<ShipmentDetail />} />
+          <Route path="/patterns" element={<Patterns />} />
+          <Route path="/graph" element={<GraphExplorer />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/email" element={<EmailPage />} />
           <Route path="/integrations" element={<Integrations />} />

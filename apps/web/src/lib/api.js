@@ -22,6 +22,8 @@ client.interceptors.request.use((config) => {
 export const api = {
   config: () => client.get("/config").then((r) => r.data),
   stats: () => client.get("/stats").then((r) => r.data),
+  activity: (days = 7) => client.get("/activity", { params: { days } }).then((r) => r.data),
+  patterns: (params = {}) => client.get("/patterns", { params }).then((r) => r.data),
   shipments: (params = {}) => client.get("/shipments", { params }).then((r) => r.data),
   shipment: (id) => client.get(`/shipments/${id}`).then((r) => r.data),
   createShipment: (payload) => client.post("/shipments", payload).then((r) => r.data),

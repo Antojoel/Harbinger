@@ -24,10 +24,16 @@ looks up requirements from the graph, not from anything in this file).
 """
 
 import copy
+import datetime as _dt
 from typing import Any, Dict, List, Optional
 
 _SHIPMENTS: Dict[str, Dict[str, Any]] = {}
 _TOTALS = {"cost_avoided_inr": 0, "outcomes_recorded": 0}
+# Real in-process event log (simulations + recorded outcomes) behind the
+# dashboard's activity chart. Bounded so a long-running demo can't grow it
+# without limit.
+_ACTIVITY: List[Dict[str, Any]] = []
+_ACTIVITY_CAP = 2000
 _EMAIL_LOG: List[Dict[str, Any]] = [
     {
         "id": "msg_001",
@@ -258,6 +264,41 @@ def record_outcome_event() -> None:
 
 def get_totals() -> Dict[str, int]:
     return dict(_TOTALS)
+
+
+def record_activity(kind: str, shipment_id: str = "") -> None:
+    """Append one real engine event (a simulation or a recorded outcome).
+
+    Backs the dashboard's activity chart. This is a genuine in-process event
+    log of what the engine actually did this session — not a synthetic series.
+    """
+    _ACTIVITY.append(
+        {
+            "kind": kind,
+            "shipment_id": shipment_id,
+            "at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        }
+    )
+    if len(_ACTIVITY) > _ACTIVITY_CAP:
+        del _ACTIVITY[: len(_ACTIVITY) - _ACTIVITY_CAP]
+
+
+def activity_series(days: int = 7) -> List[Dict[str, Any]]:
+    """Per-day counts of engine events for the last ``days`` days (oldest first)."""
+    today = _dt.datetime.now(_dt.timezone.utc).date()
+    buckets = {today - _dt.timedelta(days=i): {"checks": 0, "outcomes": 0} for i in range(days)}
+    for event in _ACTIVITY:
+        try:
+            day = _dt.datetime.fromisoformat(event["at"]).date()
+        except ValueError:
+            continue
+        if day in buckets:
+            key = "outcomes" if event["kind"] == "outcome" else "checks"
+            buckets[day][key] += 1
+    return [
+        {"date": day.isoformat(), "label": day.strftime("%d %b"), **counts}
+        for day, counts in sorted(buckets.items())
+    ]
 
 
 def list_email_logs() -> List[Dict[str, Any]]:

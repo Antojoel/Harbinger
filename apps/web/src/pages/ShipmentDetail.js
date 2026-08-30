@@ -172,7 +172,7 @@ export default function ShipmentDetail() {
           `Dear team,\n\nShipment ${ship.ref} (${ship.goods_desc}, HS ${ship.hs_code}) cannot be filed ` +
           `because the ${cert} is not attached. This certificate is required for HS code ${ship.hs_code} ` +
           `into ${ship.destination_country}. Please share it at the earliest to avoid demurrage.\n\n` +
-          `Note: this is a draft for human approval — nothing has been submitted to customs.\n\nRegards,\nClearanceGuard`,
+          `Note: this is a draft for human approval — nothing has been submitted to customs.\n\nRegards,\nHarbinger`,
         shipment_id: ship.id,
       },
     });
