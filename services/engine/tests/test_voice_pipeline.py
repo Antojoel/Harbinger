@@ -38,8 +38,18 @@ class FakeProvider:
 def patch_pipeline(monkeypatch):
     """Wire a FakeProvider and a canned graph answer into the pipeline."""
 
-    def _apply(provider: FakeProvider, answer: str = "Shipment MSKU1 is high risk."):
+    def _apply(
+        provider: FakeProvider,
+        answer: str = "Shipment MSKU1 is high risk.",
+        tts: FakeProvider | None = None,
+    ):
+        # Transcription and synthesis are separate seams (TTS_PROVIDER can point
+        # the speaking half at a different backend); unset, they resolve to the
+        # same provider, which is what passing no `tts` models here.
         monkeypatch.setattr(pipeline_module, "get_provider", lambda _s: provider)
+        monkeypatch.setattr(
+            pipeline_module, "get_tts_provider", lambda _s: tts or provider
+        )
         monkeypatch.setattr(
             pipeline_module, "build_spoken_answer", lambda _sid, _t: answer
         )
@@ -62,6 +72,42 @@ class TestAnswerVoiceQuery:
         assert result["response_text"] == "Shipment MSKU1 is high risk, 82 percent."
         assert base64.b64decode(result["response_audio_base64"]) == b"WAVDATA"
         assert provider.synth_input == "Shipment MSKU1 is high risk, 82 percent."
+
+    async def test_tts_override_speaks_while_stt_stays_on_the_main_provider(
+        self, patch_pipeline
+    ):
+        """TTS_PROVIDER moves only the speaking half."""
+        stt = FakeProvider(transcript="what is the hold risk")
+        tts = FakeProvider(audio=Audio(b"OTHERWAV", "audio/wav"))
+        patch_pipeline(stt, answer="Shipment MSKU1 is high risk.", tts=tts)
+
+        result = await pipeline_module.answer_voice_query(
+            "MSKU1", base64.b64encode(b"RIFF...").decode(), settings=VoiceSettings()
+        )
+
+        assert result["transcript"] == "what is the hold risk"
+        assert base64.b64decode(result["response_audio_base64"]) == b"OTHERWAV"
+        assert tts.synth_input == "Shipment MSKU1 is high risk."
+        # The transcribing provider was never asked to speak.
+        assert stt.synth_input is None
+
+    async def test_tts_override_failure_leaves_audio_empty_but_keeps_the_answer(
+        self, patch_pipeline
+    ):
+        stt = FakeProvider(transcript="what is the hold risk")
+        patch_pipeline(
+            stt,
+            answer="Shipment MSKU1 is high risk.",
+            tts=FakeProvider(fail_tts=True),
+        )
+
+        result = await pipeline_module.answer_voice_query(
+            "MSKU1", base64.b64encode(b"RIFF...").decode(), settings=VoiceSettings()
+        )
+
+        assert result["response_audio_base64"] == ""
+        assert result["transcript"] == "what is the hold risk"
+        assert result["response_text"] == "Shipment MSKU1 is high risk."
 
     async def test_invalid_base64_audio_is_treated_as_empty(self, patch_pipeline):
         provider = FakeProvider(transcript="")
@@ -135,11 +181,16 @@ class TestAnswerEngineSelection:
         monkeypatch.setattr(
             pipeline_module, "fetch_shipment_facts", lambda _sid: {"exists": True}
         )
+        monkeypatch.setattr(
+            pipeline_module, "fetch_graph_context", lambda _sid: {"lane": "IN-US"}
+        )
 
         async def fake_llm(shipment_id, transcript, facts, settings):
             assert shipment_id == "MSKU1"
             assert transcript == "why is this flagged?"
-            assert facts == {"exists": True}
+            # The LLM path is handed the shipment facts plus the surrounding
+            # graph context, so it can propose a grounded fix.
+            assert facts == {"exists": True, "graph_context": {"lane": "IN-US"}}
             return "llm-worded answer"
 
         monkeypatch.setattr(pipeline_module, "build_llm_answer", fake_llm)

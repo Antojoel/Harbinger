@@ -41,7 +41,7 @@ from dataclasses import replace as _dc_replace
 from voice import answer_voice_query
 from voice.answer import fetch_graph_context, fetch_shipment_facts
 from voice.llm_answer import build_llm_answer
-from voice.providers import VoiceProviderError, get_provider
+from voice.providers import VoiceProviderError, get_provider, get_tts_provider
 from voice import tools as voice_tools
 from voice.config import VALID_LLM_ANSWER_PROVIDERS, VALID_PROVIDERS, VoiceSettings
 
@@ -917,7 +917,9 @@ async def speak_endpoint(payload: SpeakRequest):
     The browser's own speechSynthesis voices are robotic and vary per machine,
     and on a locally-run stack there is a much better one already available —
     the Kokoro container. This routes through whichever TTS provider the engine
-    is configured with, so VOICE_PROVIDER=local speaks in Kokoro's voice.
+    is configured with, so VOICE_PROVIDER=local speaks in Kokoro's voice — or,
+    when TTS_PROVIDER points synthesis somewhere else (TTS_PROVIDER=smallest),
+    in Smallest AI Waves' voice, with STT left on whatever VOICE_PROVIDER says.
 
     Returns base64 WAV rather than a binary body so the caller can hand it
     straight to an <audio> element without object-URL bookkeeping.
@@ -928,7 +930,7 @@ async def speak_endpoint(payload: SpeakRequest):
 
     settings = VoiceSettings.from_env()
     try:
-        provider = get_provider(settings)
+        provider = get_tts_provider(settings)
         audio = await provider.synthesize(text)
     except VoiceProviderError as e:
         raise HTTPException(status_code=503, detail=f"text-to-speech unavailable: {e}")

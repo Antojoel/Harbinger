@@ -14,7 +14,7 @@ from voice.answer import (
 )
 from voice.config import VoiceSettings
 from voice.llm_answer import build_llm_answer
-from voice.providers import VoiceProviderError, get_provider
+from voice.providers import VoiceProviderError, get_provider, get_tts_provider
 
 logger = logging.getLogger("harbinger.voice")
 
@@ -48,6 +48,9 @@ async def answer_voice_query(
     """
     settings = settings or VoiceSettings.from_env()
     provider = get_provider(settings)
+    # Synthesis may be pointed at a different backend than transcription
+    # (TTS_PROVIDER); unset, this is the same object as `provider`.
+    tts = get_tts_provider(settings)
     audio = _decode_audio(audio_base64)
 
     transcript = ""
@@ -60,11 +63,11 @@ async def answer_voice_query(
 
     response_audio_base64 = ""
     try:
-        speech = await provider.synthesize(response_text)
+        speech = await tts.synthesize(response_text)
         if not speech.is_empty:
             response_audio_base64 = base64.b64encode(speech.data).decode("ascii")
     except VoiceProviderError as exc:
-        logger.error("speech synthesis failed (%s): %s", provider.name, exc)
+        logger.error("speech synthesis failed (%s): %s", tts.name, exc)
 
     return {
         "transcript": transcript,

@@ -13,10 +13,12 @@ from voice.providers import (
     GeminiProvider,
     LocalProvider,
     OpenAIProvider,
+    SmallestProvider,
     TextOnlyProvider,
     VertexProvider,
     VoiceProviderError,
     get_provider,
+    get_tts_provider,
     pcm_to_wav,
 )
 
@@ -354,6 +356,116 @@ class TestGetProvider:
     def test_vertex_falls_back_to_text_only_on_missing_config(self):
         provider = get_provider(VoiceSettings.from_env({"VOICE_PROVIDER": "vertex"}))
         assert isinstance(provider, TextOnlyProvider)
+
+
+@pytest.mark.unit
+class TestSmallestProvider:
+    def _settings(self, **overrides):
+        env = {"SMALLEST_AI_KEY": "sk_test"}
+        env.update(overrides)
+        return VoiceSettings.from_env(env)
+
+    def test_requires_api_key(self):
+        with pytest.raises(VoiceProviderError):
+            SmallestProvider(VoiceSettings.from_env({}))
+
+    async def test_synthesize_posts_waves_payload_and_returns_wav(self, monkeypatch):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["url"] = str(request.url)
+            seen["auth"] = request.headers.get("authorization")
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, content=b"RIFFwavbytes")
+
+        _mock_transport(monkeypatch, handler)
+        audio = await SmallestProvider(self._settings()).synthesize("hold risk is high")
+
+        assert audio.data == b"RIFFwavbytes"
+        assert audio.mime == "audio/wav"
+        assert seen["url"] == "https://api.smallest.ai/waves/v1/tts"
+        assert seen["auth"] == "Bearer sk_test"
+        assert seen["body"] == {
+            "text": "hold risk is high",
+            "voice_id": "srishti",
+            "model": "lightning_v3.1",
+            "sample_rate": 24000,
+            "speed": 1.0,
+            "language": "en",
+            "output_format": "wav",
+        }
+
+    async def test_synthesize_honours_voice_and_model_overrides(self, monkeypatch):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, content=b"RIFF")
+
+        _mock_transport(monkeypatch, handler)
+        settings = self._settings(
+            SMALLEST_TTS_VOICE="raj",
+            SMALLEST_TTS_MODEL="lightning_v3.1_pro",
+            SMALLEST_TTS_LANGUAGE="hi",
+            SMALLEST_TTS_SPEED="1.2",
+        )
+        await SmallestProvider(settings).synthesize("namaste")
+
+        assert seen["body"]["voice_id"] == "raj"
+        assert seen["body"]["model"] == "lightning_v3.1_pro"
+        assert seen["body"]["language"] == "hi"
+        assert seen["body"]["speed"] == 1.2
+
+    async def test_synthesize_empty_text_skips_call(self, monkeypatch):
+        _mock_transport(monkeypatch, lambda r: httpx.Response(500))
+        assert (await SmallestProvider(self._settings()).synthesize("")).is_empty
+
+    async def test_empty_body_is_empty_audio(self, monkeypatch):
+        _mock_transport(monkeypatch, lambda r: httpx.Response(200, content=b""))
+        assert (await SmallestProvider(self._settings()).synthesize("hi")).is_empty
+
+    async def test_http_error_becomes_provider_error(self, monkeypatch):
+        _mock_transport(monkeypatch, lambda r: httpx.Response(401, json={"error": "no"}))
+        with pytest.raises(VoiceProviderError):
+            await SmallestProvider(self._settings()).synthesize("hi")
+
+    async def test_transcribe_is_unsupported(self):
+        # Waves has no STT endpoint - say so plainly rather than returning "".
+        with pytest.raises(VoiceProviderError):
+            await SmallestProvider(self._settings()).transcribe(b"RIFF", "audio/wav")
+
+
+@pytest.mark.unit
+class TestGetTtsProvider:
+    def test_unset_override_uses_the_voice_provider(self):
+        settings = VoiceSettings.from_env({"VOICE_PROVIDER": "local"})
+        assert isinstance(get_tts_provider(settings), LocalProvider)
+
+    def test_override_selects_smallest_while_stt_stays_local(self):
+        settings = VoiceSettings.from_env(
+            {
+                "VOICE_PROVIDER": "local",
+                "TTS_PROVIDER": "smallest",
+                "SMALLEST_AI_KEY": "sk_test",
+            }
+        )
+        assert isinstance(get_tts_provider(settings), SmallestProvider)
+        assert isinstance(get_provider(settings), LocalProvider)
+
+    def test_unconstructable_override_falls_back_to_the_voice_provider(self):
+        # No SMALLEST_AI_KEY: degrade to the speech that already worked
+        # (Kokoro), not to silence.
+        settings = VoiceSettings.from_env(
+            {"VOICE_PROVIDER": "local", "TTS_PROVIDER": "smallest"}
+        )
+        assert isinstance(get_tts_provider(settings), LocalProvider)
+
+    def test_unknown_override_is_ignored_by_config(self):
+        settings = VoiceSettings.from_env(
+            {"VOICE_PROVIDER": "local", "TTS_PROVIDER": "nonsense"}
+        )
+        assert settings.tts_provider == ""
+        assert isinstance(get_tts_provider(settings), LocalProvider)
 
 
 @pytest.mark.unit
