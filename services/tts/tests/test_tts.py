@@ -55,8 +55,9 @@ class TestSamplesToWav:
 
 
 class _FakeSynth:
-    def __init__(self, samples):
+    def __init__(self, samples, device="cpu"):
         self._samples = samples
+        self.device = device
         self.calls = []
 
     def synthesize(self, text, *, voice, speed):
@@ -80,6 +81,23 @@ class TestSpeakEndpoint:
         body = client.get("/health").json()
         assert body["status"] == "ok"
         assert body["sample_rate"] == SAMPLE_RATE
+
+    def test_health_reports_the_device_the_model_loaded_on(self, monkeypatch):
+        fake = _FakeSynth(np.zeros(2400, dtype=np.float32), device="cuda")
+        monkeypatch.setattr(app_module, "_synthesizer", fake)
+        monkeypatch.setattr(app_module, "build_synthesizer", lambda _c: fake)
+
+        with TestClient(app_module.app) as test_client:
+            assert test_client.get("/health").json()["device"] == "cuda"
+
+    def test_health_device_is_null_before_the_model_loads(self, monkeypatch):
+        monkeypatch.setattr(app_module, "_synthesizer", None)
+
+        # No startup warm-up: hit the route directly so the model stays unloaded.
+        body = app_module.health()
+
+        assert body["device"] is None
+        assert body["model_loaded"] is False
 
     def test_speak_returns_wav(self, client):
         response = client.post(

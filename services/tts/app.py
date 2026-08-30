@@ -53,6 +53,10 @@ def health() -> dict[str, object]:
     return {
         "status": "ok",
         "backend": config.backend,
+        # The device the model actually loaded on. KOKORO_DEVICE=cuda silently
+        # falls back to cpu when CUDA is unavailable (see synth._resolve_torch_device),
+        # so reporting the request here would hide exactly the case worth catching.
+        "device": _synthesizer.device if _synthesizer is not None else None,
         "sample_rate": SAMPLE_RATE,
         "model_loaded": _synthesizer is not None,
     }
