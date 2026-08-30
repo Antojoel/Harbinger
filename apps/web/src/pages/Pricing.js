@@ -112,18 +112,18 @@ export default function Pricing() {
 
   const tiers = data?.tiers || [];
   const avg = data?.avg_demurrage_per_day_inr || 5500;
+  const holdDays = data?.avg_hold_days || 4;
+  const perShipment = data?.per_shipment_inr || 149;
 
-  // ROI framing uses the cheapest paid plan: the whole month against a single
-  // day of demurrage. No invented savings — both numbers come from the API.
-  const entry = useMemo(
-    () => tiers.filter((t) => t.price_inr).sort((a, b) => a.price_inr - b.price_inr)[0],
-    [tiers]
-  );
-  const entryPrice = monthlyPrice(entry || {}, annual) || 0;
-  const days = avg > 0 ? (entryPrice / avg).toFixed(1) : "0";
+  // Like-for-like comparison: what one checked shipment costs, against what
+  // one hold on that same shipment costs. Both are per-shipment figures, so
+  // the bars are directly comparable (an earlier version put a monthly plan
+  // fee next to a single day of demurrage, which compared different units).
+  const holdCost = avg * holdDays;
+  const multiple = perShipment > 0 ? Math.round(holdCost / perShipment) : 0;
   const chartData = [
-    { name: `${entry?.name || "Entry"} plan / month`, value: entryPrice, key: "fee" },
-    { name: "Demurrage / day avoided", value: avg, key: "demurrage" },
+    { name: "Check one shipment", value: perShipment, key: "fee" },
+    { name: `One hold · ${holdDays} days`, value: holdCost, key: "demurrage" },
   ];
 
   return (
@@ -172,18 +172,19 @@ export default function Pricing() {
         </Alert>
       )}
 
-      <div className="grid items-center gap-5 lg:grid-cols-3 lg:gap-6">
+      <div className="grid items-center gap-5 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
         {tiers.map((t, i) => {
           const highlighted = Boolean(t.highlight);
           const price = monthlyPrice(t, annual);
           const isCustom = price === null;
+          const metered = Boolean(t.metered);
           return (
             <Card
               key={t.id}
               style={stagger(i, 60)}
               className={
                 highlighted
-                  ? "cg-rise relative z-10 flex flex-col p-6 pt-7 shadow-md ring-1 ring-primary transition-transform duration-normal ease-expo lg:scale-[1.045]"
+                  ? "cg-rise relative z-10 flex flex-col p-6 pt-7 shadow-md ring-1 ring-primary transition-transform duration-normal ease-expo xl:scale-[1.045]"
                   : "cg-rise relative flex flex-col border-border bg-card/60 p-6 pt-7"
               }
             >
@@ -211,9 +212,11 @@ export default function Pricing() {
               <div className="mt-1 h-4 text-[11px] text-muted-foreground">
                 {isCustom
                   ? "Volume-based, billed annually"
-                  : annual
-                    ? `billed annually — ${fmtINR(price * 12)}/yr`
-                    : `${fmtINR(monthlyPrice(t, true))}/mo billed annually`}
+                  : metered
+                    ? "Billed per check — no subscription"
+                    : annual
+                      ? `billed annually — ${fmtINR(price * 12)}/yr`
+                      : `${fmtINR(monthlyPrice(t, true))}/mo billed annually`}
               </div>
 
               <p className="mt-3 text-xs text-muted-foreground">{t.blurb}</p>
@@ -264,15 +267,20 @@ export default function Pricing() {
       <Card className="p-6">
         <div className={SECTION_LABEL}>Unit economics</div>
         <div className="mt-1 flex items-center gap-2 font-display font-medium">
-          <TrendingDown className="h-4 w-4 text-ok" /> Fee vs. demurrage avoided
+          <TrendingDown className="h-4 w-4 text-ok" /> Cost of a check vs. cost of a hold
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">{data?.note}</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Both figures are per shipment, so they compare directly.
+        </p>
 
         <div className="mt-4 rounded-md bg-muted p-4 text-sm text-foreground">
-          <span className="font-mono font-semibold">{fmtINR(entryPrice)}</span> a month vs{" "}
-          <span className="font-mono font-semibold">{fmtINR(avg)}/day</span> in demurrage — the entry
-          plan costs about <span className="font-mono font-semibold">{days}</span> days of a single
-          held container.
+          Checking a shipment costs{" "}
+          <span className="font-mono font-semibold">{fmtINR(perShipment)}</span>. One hold on that
+          same shipment costs about{" "}
+          <span className="font-mono font-semibold">{fmtINR(holdCost)}</span> —{" "}
+          <span className="font-mono font-semibold">{fmtINR(avg)}/day</span> × {holdDays} days. One
+          prevented hold pays for roughly{" "}
+          <span className="font-mono font-semibold">{multiple}</span> checks.
         </div>
 
         <div className="mt-4 h-48 w-full">
@@ -318,10 +326,10 @@ export default function Pricing() {
 
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full" style={{ background: colors.c1 }} /> Our fee
+            <span className="h-2 w-2 rounded-full" style={{ background: colors.c1 }} /> Cost to check
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full" style={{ background: colors.c2 }} /> Demurrage avoided / day
+            <span className="h-2 w-2 rounded-full" style={{ background: colors.c2 }} /> Cost of a hold
           </span>
         </div>
       </Card>

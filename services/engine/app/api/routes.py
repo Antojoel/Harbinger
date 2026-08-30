@@ -660,6 +660,19 @@ async def pricing_endpoint():
     return {
         "tiers": [
             {
+                "id": "payg", "name": "Pay as you go", "price_inr": 149,
+                "price_inr_annual": 149, "unit": "shipment", "highlight": False,
+                "metered": True,
+                "features": [
+                    "₹149 per shipment checked",
+                    "No monthly commitment",
+                    "Full risk dossier per shipment",
+                    "Auto-fix internal defects",
+                    "Pay only when you run a check",
+                ],
+                "blurb": "Try the engine on real shipments before committing to a plan.",
+            },
+            {
                 "id": "starter", "name": "Starter", "price_inr": 7999, "price_inr_annual": 6399,
                 "unit": "mo", "highlight": False,
                 "features": [
@@ -699,8 +712,10 @@ async def pricing_endpoint():
             },
         ],
         "avg_demurrage_per_day_inr": 5500,
+        "avg_hold_days": 4,
+        "per_shipment_inr": 149,
         "razorpay_ready": razorpay_client.is_configured(),
-        "note": "Fee shown against average demurrage avoided per prevented hold.",
+        "note": "Per-shipment fee shown against the demurrage cost of one prevented hold.",
     }
 
 
