@@ -37,6 +37,7 @@ export const api = {
   graph: () => client.get("/graph").then((r) => r.data),
   transcribe: (audio_base64) =>
     client.post("/transcribe", { audio_base64 }).then((r) => r.data),
+  speak: (text) => client.post("/speak", { text }).then((r) => r.data),
   voice: (shipment_id, question, page) =>
     client.post("/voice", { shipment_id, question, page }).then((r) => r.data),
   pricing: () => client.get("/pricing").then((r) => r.data),

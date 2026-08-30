@@ -42,6 +42,7 @@ from voice import answer_voice_query
 from voice.answer import fetch_graph_context, fetch_shipment_facts
 from voice.llm_answer import build_llm_answer
 from voice.providers import VoiceProviderError, get_provider
+from voice import tools as voice_tools
 from voice.config import VALID_LLM_ANSWER_PROVIDERS, VALID_PROVIDERS, VoiceSettings
 
 router = APIRouter()
@@ -788,6 +789,17 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
     all_shipments = [_ensure_simulated(s) for s in shipment_store.list_shipments()]
     focus_importer = workspace.find_importer(payload.question, all_shipments)
 
+    # _reason_codes re-runs engine.simulate() per shipment, and it is consulted
+    # once per shipment when building the workspace and again on every tool
+    # call. Memoise for the life of this request so one chat message doesn't
+    # trigger hundreds of simulations.
+    _codes_cache: Dict[str, List[str]] = {}
+
+    def reason_codes_cached(shipment_id: str) -> List[str]:
+        if shipment_id not in _codes_cache:
+            _codes_cache[shipment_id] = _reason_codes(shipment_id)
+        return _codes_cache[shipment_id]
+
     graph_snapshot = None
     try:
         graph_snapshot = engine.graph_snapshot()
@@ -797,7 +809,7 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
     facts: Dict[str, Any] = {
         "workspace": workspace.build_workspace_context(
             all_shipments,
-            reason_codes_for=_reason_codes,
+            reason_codes_for=reason_codes_cached,
             patterns=engine.query_patterns({}),
             graph=graph_snapshot,
             focus_importer=focus_importer,
@@ -813,7 +825,7 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
             payload.shipment_id,
             hs_code=shipment.get("hs_code", ""),
             country=shipment.get("destination_country", ""),
-            reason_codes=_reason_codes(payload.shipment_id),
+            reason_codes=reason_codes_cached(payload.shipment_id),
         )
         facts["focused_shipment"] = {
             "reference": shipment["ref"],
@@ -830,14 +842,31 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
             ],
         }
 
+    # On-demand fetching for anything the prepacked context doesn't cover.
+    used: List[str] = []
+    dispatch = voice_tools.build_executor(_ensure_simulated, reason_codes_cached)
+
+    def executor(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        used.append(name)
+        return dispatch(name, args)
+
     try:
         answer = await build_llm_answer(
-            payload.shipment_id or "", payload.question, facts, settings
+            payload.shipment_id or "",
+            payload.question,
+            facts,
+            settings,
+            executor=executor,
+            tools=voice_tools.TOOL_SCHEMAS,
         )
-        return {"answer": answer, "source": settings.llm_answer_provider}
+        return {
+            "answer": answer,
+            "source": settings.llm_answer_provider,
+            "tools_used": used,
+        }
     except Exception as e:
         logger.warning("assistant LLM answer failed, using template: %s", e)
-        return {"answer": fallback, "source": "heuristic"}
+        return {"answer": fallback, "source": "heuristic", "tools_used": used}
 
 
 class TranscribeRequest(BaseModel):
@@ -877,10 +906,58 @@ async def transcribe_endpoint(payload: TranscribeRequest):
     return {"transcript": (transcript or "").strip()}
 
 
+class SpeakRequest(BaseModel):
+    text: str = Field(..., description="Text to synthesize")
+
+
+@router.post("/speak", summary="Speak an assistant answer via the configured TTS (UI adapter)")
+async def speak_endpoint(payload: SpeakRequest):
+    """Text-to-speech for the Assistant's read-aloud toggle.
+
+    The browser's own speechSynthesis voices are robotic and vary per machine,
+    and on a locally-run stack there is a much better one already available —
+    the Kokoro container. This routes through whichever TTS provider the engine
+    is configured with, so VOICE_PROVIDER=local speaks in Kokoro's voice.
+
+    Returns base64 WAV rather than a binary body so the caller can hand it
+    straight to an <audio> element without object-URL bookkeeping.
+    """
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="nothing to speak")
+
+    settings = VoiceSettings.from_env()
+    try:
+        provider = get_provider(settings)
+        audio = await provider.synthesize(text)
+    except VoiceProviderError as e:
+        raise HTTPException(status_code=503, detail=f"text-to-speech unavailable: {e}")
+
+    if audio.is_empty:
+        # text_only has no synthesizer; say so rather than returning silence
+        # the caller would try to play.
+        raise HTTPException(
+            status_code=503,
+            detail="the configured voice provider does not synthesize audio",
+        )
+    return {
+        "audio_base64": base64.b64encode(audio.data).decode("ascii"),
+        "mime": audio.mime,
+    }
+
+
 @router.get("/config", summary="Feature flags for pages outside the core demo (UI adapter)")
 async def config_endpoint():
     resend_ready = bool(os.getenv("RESEND_API_KEY"))
-    return {"resend_ready": resend_ready, "google_login_configured": google_auth.is_configured()}
+    settings = VoiceSettings.from_env()
+    return {
+        "resend_ready": resend_ready,
+        "google_login_configured": google_auth.is_configured(),
+        # text_only can't synthesize, so the UI falls back to browser speech
+        # rather than offering a read-aloud toggle that returns 503.
+        "server_tts": settings.provider != "text_only",
+        "voice_provider": settings.provider,
+    }
 
 
 # =========================================================================

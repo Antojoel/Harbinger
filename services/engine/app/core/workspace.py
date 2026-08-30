@@ -158,19 +158,21 @@ def build_workspace_context(
         "site_map": SITE_MAP,
     }
 
-    # The full per-shipment list is large; send it only when the question is
-    # about one company, otherwise the aggregates above carry the answer.
+    # The whole book, always. At ~330 bytes a row this is a few thousand
+    # tokens for a realistic book — far cheaper than the assistant answering
+    # "I only have data for one shipment" because the list was withheld.
+    # Aggregates above stay, so concentration questions don't require scanning
+    # these rows.
+    context["all_shipments"] = sorted(rows, key=lambda r: -r["hold_risk_percent"])
+
+    # When a company is named, call it out explicitly so the model doesn't have
+    # to re-derive the subset from the full list.
     if focus_importer:
         matched = [r for r in rows if r["importer"] == focus_importer]
         context["shipments_for_focused_importer"] = {
             "importer": focus_importer,
             "shipments": sorted(matched, key=lambda r: -r["hold_risk_percent"]),
         }
-    else:
-        # Still name the riskiest few so "what needs attention?" is answerable.
-        context["highest_risk_shipments"] = sorted(
-            rows, key=lambda r: -r["hold_risk_percent"]
-        )[:8]
 
     if patterns:
         context["learned_patterns"] = [

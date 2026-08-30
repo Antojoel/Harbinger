@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useParams } from "react-router-dom";
-import { Sparkles, Volume2, VolumeX } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { Sparkles, Volume2, VolumeX, Layers } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -70,19 +70,31 @@ function RiskDot({ band }) {
   );
 }
 
+// Sentinel for "no single shipment in focus" — the assistant is handed the
+// whole book either way, this only decides whether one container is called
+// out as the subject of the question.
+const ALL = "__all__";
+
+function routeShipmentIdFrom(pathname) {
+  const m = /^\/shipment\/([^/]+)/.exec(pathname || "");
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+// Focus a shipment only when the user is actually looking at one. Previously
+// this fell back to "first at-risk, else first in the list", which silently
+// scoped every question to one container.
 function pickDefaultShipment(list, routeId) {
-  if (!list.length) return "";
   const onRoute = list.find((s) => s.id === routeId);
-  if (onRoute) return onRoute.id;
-  const atRisk = list.find((s) => s.risk_band === "high" || s.risk_band === "medium");
-  return (atRisk || list[0]).id;
+  return onRoute ? onRoute.id : ALL;
 }
 
 export default function ChatPanel() {
-  const routeParams = useParams();
   const location = useLocation();
+  // ChatPanel renders inside Layout, which sits OUTSIDE <Routes> — useParams()
+  // is empty here, so the focused shipment is read from the path directly.
+  const routeShipmentId = routeShipmentIdFrom(location.pathname);
   const [shipments, setShipments] = useState([]);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(ALL);
   const [messages, setMessages] = useState([]); // { role, text }
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -115,7 +127,7 @@ export default function ChatPanel() {
         if (cancelled) return;
         const safe = Array.isArray(list) ? list : [];
         setShipments(safe);
-        setSelected((prev) => prev || pickDefaultShipment(safe, routeParams.id));
+        setSelected((prev) => (prev && prev !== ALL ? prev : pickDefaultShipment(safe, routeShipmentId)));
       })
       .catch(() => {
         if (!cancelled) {
@@ -133,11 +145,13 @@ export default function ChatPanel() {
 
   // Follow the shipment in the route when it changes.
   useEffect(() => {
-    if (routeParams.id && shipments.some((s) => s.id === routeParams.id)) {
-      setSelected(routeParams.id);
+    if (routeShipmentId && shipments.some((s) => s.id === routeShipmentId)) {
+      setSelected(routeShipmentId);
+    } else if (!routeShipmentId) {
+      setSelected(ALL);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeParams.id, shipments.length]);
+  }, [routeShipmentId, shipments.length]);
 
   // Insert a context-change divider whenever the selected shipment changes
   // (after the very first assignment).
@@ -147,7 +161,7 @@ export default function ChatPanel() {
     prevSelectedRef.current = selected;
     if (!prev || prev === selected) return;
     const ship = shipments.find((s) => s.id === selected);
-    const label = ship?.ref || selected;
+    const label = selected === ALL ? "all shipments" : ship?.ref || selected;
     setMessages((m) => (m.length ? [...m, { role: "divider", text: label }] : m));
   }, [selected, shipments]);
 
@@ -186,7 +200,7 @@ export default function ChatPanel() {
       setDraft("");
       setThinking(true);
       try {
-        const res = await api.voice(selected || undefined, question, location.pathname);
+        const res = await api.voice(selected === ALL ? undefined : selected, question, location.pathname);
         const answer = res?.answer || "No answer came back for that one.";
         setMessages((m) => [...m, { role: "assistant", text: answer }]);
         tts.speak(answer);
@@ -216,6 +230,15 @@ export default function ChatPanel() {
             <SelectValue placeholder="Select a shipment" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL} className="text-xs">
+              <span className="flex items-center gap-1.5">
+                <Layers className="h-3 w-3 text-muted-foreground" />
+                <span className="font-medium">All shipments</span>
+                {shipments.length > 0 && (
+                  <span className="text-muted-foreground">{shipments.length} in the book</span>
+                )}
+              </span>
+            </SelectItem>
             {shipments.map((s) => (
               <SelectItem key={s.id} value={s.id} className="text-xs">
                 <span className="flex items-center gap-1.5">

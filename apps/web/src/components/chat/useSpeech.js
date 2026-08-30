@@ -230,6 +230,34 @@ export function useTextToSpeech() {
       return false;
     }
   });
+  // Whether the engine can synthesize server-side. When it can (Kokoro on a
+  // local stack, or a cloud provider) we use that voice instead of the
+  // browser's built-in one, which is robotic and differs per machine.
+  const [serverTts, setServerTts] = useState(false);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .config()
+      .then((c) => alive && setServerTts(Boolean(c?.server_tts)))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    const el = audioRef.current;
+    audioRef.current = null;
+    if (!el) return;
+    try {
+      el.pause();
+      el.src = "";
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const persist = useCallback((next) => {
     try {
@@ -243,30 +271,61 @@ export function useTextToSpeech() {
     setEnabled((current) => {
       const next = !current;
       persist(next);
-      if (!next) cancelSynthesis();
+      if (!next) {
+        cancelSynthesis();
+        stopAudio();
+      }
       return next;
     });
-  }, [persist]);
+  }, [persist, stopAudio]);
+
+  const speakInBrowser = useCallback((text) => {
+    let synth;
+    try {
+      synth = window.speechSynthesis;
+    } catch {
+      return;
+    }
+    if (!synth || typeof window.SpeechSynthesisUtterance !== "function") return;
+    synth.cancel();
+    const utterance = new window.SpeechSynthesisUtterance(text);
+    utterance.rate = 1.02;
+    synth.speak(utterance);
+  }, []);
 
   const speak = useCallback(
-    (text) => {
+    async (text) => {
       if (!enabled || !text) return;
-      let synth;
-      try {
-        synth = window.speechSynthesis;
-      } catch {
-        return;
+      cancelSynthesis();
+      stopAudio();
+
+      // Prefer the engine's own voice (Kokoro when the local stack is up).
+      // Fall back to the browser only if the server can't synthesize — a
+      // silent failure here would look like the toggle is broken.
+      if (serverTts) {
+        try {
+          const { audio_base64: audio, mime } = await api.speak(text);
+          if (audio) {
+            const el = new Audio(`data:${mime || "audio/wav"};base64,${audio}`);
+            audioRef.current = el;
+            await el.play();
+            return;
+          }
+        } catch {
+          /* fall through to the browser voice */
+        }
       }
-      if (!synth || typeof window.SpeechSynthesisUtterance !== "function") return;
-      synth.cancel();
-      const utterance = new window.SpeechSynthesisUtterance(text);
-      utterance.rate = 1.02;
-      synth.speak(utterance);
+      speakInBrowser(text);
     },
-    [enabled]
+    [enabled, serverTts, speakInBrowser, stopAudio]
   );
 
-  const cancel = useCallback(() => cancelSynthesis(), []);
+  const cancel = useCallback(() => {
+    cancelSynthesis();
+    stopAudio();
+  }, [stopAudio]);
 
-  return { enabled, toggle, speak, cancel };
+  useEffect(() => stopAudio, [stopAudio]);
+
+  return { enabled, toggle, speak, cancel, serverTts };
 }
