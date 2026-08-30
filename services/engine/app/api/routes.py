@@ -32,7 +32,7 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger("routes")
 
 
-from core import engine, shipment_store, user_store
+from core import engine, shipment_store, user_store, workspace
 from api import ui_adapter
 from documents import extraction
 from integrations import razorpay_client, google_auth
@@ -134,8 +134,13 @@ class PaymentOrderUiRequest(BaseModel):
 
 
 class VoiceUiRequest(BaseModel):
-    shipment_id: str
+    shipment_id: Optional[str] = Field(
+        None, description="Shipment in focus, if the user is looking at one"
+    )
     question: str
+    page: Optional[str] = Field(
+        None, description="Route the user is currently on, e.g. '/graph' — lets the assistant answer about what's on screen"
+    )
 
 
 class SendEmailRequest(BaseModel):
@@ -749,46 +754,72 @@ async def payments_verify_endpoint(payload: Dict[str, Any]):
 @router.post("/voice", summary="Text Q&A for the dashboard assistant (UI adapter)")
 async def voice_ui_endpoint(payload: VoiceUiRequest):
     """
-    Text-only Q&A for the dashboard's Assistant panel — the browser handles
-    speech itself (Web Speech API), so no audio ever reaches this endpoint.
+    Text-only Q&A for the Assistant panel — the browser handles speech itself,
+    so no audio reaches this endpoint.
 
-    When ``LLM_ANSWER_PROVIDER`` is configured (openai/gemini) the answer is
-    written by that model, grounded in the shipment's latest risk check *and*
-    the surrounding knowledge graph (the lane's certificate requirements, each
-    matched pattern's rejection reason, what is known to resolve it, and how
-    widely it has been seen). Any LLM failure — missing key, network error,
-    malformed response — falls back to the deterministic template, so the
-    panel always answers.
+    The assistant is scoped to the whole workspace, not one shipment. It is
+    handed the full book (every shipment's current risk, plus aggregates by
+    importer, destination and HS code), the learned pattern library, a
+    structural summary of the immune-memory graph, and a map of the product's
+    own screens — so it can answer "how are all the Whitefield containers
+    doing?", "what does this graph tell me?", and "where do I do that?" as
+    well as questions about a single shipment.
+
+    ``page`` is the route the user is on, so an answer can be about what is
+    actually on screen. ``shipment_id`` is optional and only narrows focus.
+
+    Any LLM failure falls back to the deterministic per-shipment template, so
+    the panel always answers.
     """
-    shipment = shipment_store.get_shipment(payload.shipment_id)
-    if not shipment:
-        raise HTTPException(status_code=404, detail="Shipment not found")
-    shipment = _ensure_simulated(shipment)
-
-    simulation = shipment["latest_simulation"]
     settings = VoiceSettings.from_env()
-    fallback = ui_adapter.voice_answer(shipment["ref"], simulation, payload.question)
+
+    shipment = shipment_store.get_shipment(payload.shipment_id) if payload.shipment_id else None
+    simulation = None
+    fallback = "Ask about a shipment's hold risk, the patterns the engine has learned, or where to find something in Harbinger."
+    if shipment:
+        shipment = _ensure_simulated(shipment)
+        simulation = shipment["latest_simulation"]
+        fallback = ui_adapter.voice_answer(shipment["ref"], simulation, payload.question)
 
     if settings.llm_answer_provider == "heuristic":
         return {"answer": fallback, "source": "heuristic"}
 
-    facts = fetch_shipment_facts(payload.shipment_id)
-    facts = {
-        **facts,
-        # Resolved by lane (HS code + destination) and by the reason codes this
-        # risk check actually raised — a dashboard shipment isn't a graph node,
-        # but the rules and learned patterns that apply to it are.
-        "graph_context": fetch_graph_context(
+    # --- workspace-wide context ------------------------------------------
+    all_shipments = [_ensure_simulated(s) for s in shipment_store.list_shipments()]
+    focus_importer = workspace.find_importer(payload.question, all_shipments)
+
+    graph_snapshot = None
+    try:
+        graph_snapshot = engine.graph_snapshot()
+    except Exception as e:  # graph is optional context, never fatal here
+        logger.warning("assistant: graph snapshot unavailable: %s", e)
+
+    facts: Dict[str, Any] = {
+        "workspace": workspace.build_workspace_context(
+            all_shipments,
+            reason_codes_for=_reason_codes,
+            patterns=engine.query_patterns({}),
+            graph=graph_snapshot,
+            focus_importer=focus_importer,
+        ),
+        "current_page": payload.page or "/",
+    }
+
+    # --- narrow, per-shipment context when one is in focus ---------------
+    if shipment and simulation:
+        facts["exists"] = True
+        facts["status"] = shipment.get("status", "")
+        facts["graph_context"] = fetch_graph_context(
             payload.shipment_id,
             hs_code=shipment.get("hs_code", ""),
             country=shipment.get("destination_country", ""),
             reason_codes=_reason_codes(payload.shipment_id),
-        ),
-        # The dashboard's risk check is richer than the graph alone (it knows
-        # the current score, band, and per-item checklist for THIS filing),
-        # so hand the model that too rather than only historical patterns.
-        "simulation": {
+        )
+        facts["focused_shipment"] = {
             "reference": shipment["ref"],
+            "importer": shipment["importer_name"],
+            "hs_code": shipment.get("hs_code"),
+            "destination": shipment.get("destination_country"),
             "hold_risk_percent": simulation.get("score"),
             "risk_band": simulation.get("band"),
             "summary": simulation.get("summary"),
@@ -797,11 +828,12 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
                 {"item": c.get("item"), "state": c.get("status"), "action": c.get("action")}
                 for c in (simulation.get("checklist") or [])
             ],
-        },
-    }
+        }
 
     try:
-        answer = await build_llm_answer(payload.shipment_id, payload.question, facts, settings)
+        answer = await build_llm_answer(
+            payload.shipment_id or "", payload.question, facts, settings
+        )
         return {"answer": answer, "source": settings.llm_answer_provider}
     except Exception as e:
         logger.warning("assistant LLM answer failed, using template: %s", e)

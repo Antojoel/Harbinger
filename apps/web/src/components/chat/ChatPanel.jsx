@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { Sparkles, Volume2, VolumeX } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -17,11 +17,42 @@ import { Composer } from "./Composer";
 import { TypingDots } from "./TypingDots";
 import { useMicDictation, useTextToSpeech } from "./useSpeech";
 
-const QUICK_PROMPTS = [
+// Prompts follow the screen: on the graph the useful question is what the
+// graph means, on the manifest it's which containers need attention. Falls
+// back to shipment-level questions on a dossier.
+const QUICK_PROMPTS_BY_PAGE = {
+  "/graph": [
+    "What does this graph tell me?",
+    "Where do failures concentrate?",
+    "What should I check before filing?",
+  ],
+  "/patterns": [
+    "Which pattern costs us most?",
+    "What's the trend here?",
+    "How do I act on these?",
+  ],
+  "/shipments": [
+    "Which containers need attention?",
+    "Summarise risk by importer",
+    "What's blocking the high-risk ones?",
+  ],
+  "/": [
+    "What needs attention today?",
+    "Summarise risk by destination",
+    "Where are certificates missing?",
+  ],
+};
+
+const SHIPMENT_PROMPTS = [
   "Why is this flagged?",
   "What's the hold risk?",
   "What fixes it?",
 ];
+
+function promptsFor(pathname) {
+  if (pathname.startsWith("/shipment/")) return SHIPMENT_PROMPTS;
+  return QUICK_PROMPTS_BY_PAGE[pathname] || SHIPMENT_PROMPTS;
+}
 
 const BAND_DOT = {
   low: "bg-ok",
@@ -49,6 +80,7 @@ function pickDefaultShipment(list, routeId) {
 
 export default function ChatPanel() {
   const routeParams = useParams();
+  const location = useLocation();
   const [shipments, setShipments] = useState([]);
   const [selected, setSelected] = useState("");
   const [messages, setMessages] = useState([]); // { role, text }
@@ -147,10 +179,6 @@ export default function ChatPanel() {
     async (rawQuestion) => {
       const question = (rawQuestion ?? draft).trim();
       if (!question || thinking) return;
-      if (!selected) {
-        setMessages((m) => [...m, { role: "system", text: "Pick a shipment above first." }]);
-        return;
-      }
 
       if (speech.listening) speech.stop();
       stickToBottomRef.current = true;
@@ -158,7 +186,7 @@ export default function ChatPanel() {
       setDraft("");
       setThinking(true);
       try {
-        const res = await api.voice(selected, question);
+        const res = await api.voice(selected || undefined, question, location.pathname);
         const answer = res?.answer || "No answer came back for that one.";
         setMessages((m) => [...m, { role: "assistant", text: answer }]);
         tts.speak(answer);
@@ -171,7 +199,7 @@ export default function ChatPanel() {
         setThinking(false);
       }
     },
-    [draft, thinking, selected, speech, tts]
+    [draft, thinking, selected, speech, tts, location.pathname]
   );
 
   const isEmpty = messages.length === 0 && !thinking;
@@ -236,7 +264,7 @@ export default function ChatPanel() {
                 <Sparkles className="h-4 w-4" />
               </div>
               <p className="text-xs text-muted-foreground">
-                Ask about any shipment's hold risk. Pick one above.
+                Ask about any shipment, the whole book, what the graph is telling you, or where to find something.
               </p>
             </div>
           )}
@@ -251,7 +279,7 @@ export default function ChatPanel() {
 
       {/* Quick prompts */}
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {QUICK_PROMPTS.map((prompt) => (
+        {promptsFor(location.pathname).map((prompt) => (
           <button
             key={prompt}
             type="button"
