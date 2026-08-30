@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageBubble } from "./MessageBubble";
 import { Composer } from "./Composer";
 import { TypingDots } from "./TypingDots";
-import { useSpeechRecognition, useTextToSpeech } from "./useSpeech";
+import { useMicDictation, useTextToSpeech } from "./useSpeech";
 
 const QUICK_PROMPTS = [
   "Why is this flagged?",
@@ -61,11 +61,16 @@ export default function ChatPanel() {
   const prevSelectedRef = useRef("");
 
   const tts = useTextToSpeech();
-  const speech = useSpeechRecognition({
+  const speech = useMicDictation({
+    // Dictation fills the composer rather than sending, so the user can fix a
+    // misheard word before it goes anywhere.
     onResult: useCallback((transcript) => {
       setDraft((current) =>
         current.trim() ? `${current.trim()} ${transcript}` : transcript
       );
+    }, []),
+    onError: useCallback((message) => {
+      setMessages((m) => [...m, { role: "system", text: message }]);
     }, []),
   });
 
@@ -268,6 +273,8 @@ export default function ChatPanel() {
           disabled={thinking}
           micSupported={speech.supported}
           listening={speech.listening}
+          transcribing={speech.transcribing}
+          level={speech.level}
           onMicToggle={speech.toggle}
         />
       </div>

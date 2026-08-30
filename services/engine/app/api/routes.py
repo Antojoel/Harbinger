@@ -41,6 +41,7 @@ from dataclasses import replace as _dc_replace
 from voice import answer_voice_query
 from voice.answer import fetch_graph_context, fetch_shipment_facts
 from voice.llm_answer import build_llm_answer
+from voice.providers import VoiceProviderError, get_provider
 from voice.config import VALID_LLM_ANSWER_PROVIDERS, VALID_PROVIDERS, VoiceSettings
 
 router = APIRouter()
@@ -805,6 +806,43 @@ async def voice_ui_endpoint(payload: VoiceUiRequest):
     except Exception as e:
         logger.warning("assistant LLM answer failed, using template: %s", e)
         return {"answer": fallback, "source": "heuristic"}
+
+
+class TranscribeRequest(BaseModel):
+    audio_base64: str = Field(..., description="Base64-encoded WAV recorded in the browser")
+
+
+@router.post("/transcribe", summary="Transcribe recorded mic audio (UI adapter)")
+async def transcribe_endpoint(payload: TranscribeRequest):
+    """Speech-to-text for the Assistant's mic button.
+
+    The browser's own SpeechRecognition API needs a cloud speech service and
+    fails immediately when that is blocked (offline, Brave/strict privacy
+    settings), which reads to the user as "the mic closes the moment I click
+    it". This routes the recording through whichever STT provider the engine
+    is configured with instead — the local faster-whisper container when
+    VOICE_PROVIDER=local — so the mic works on the same terms as the rest of
+    the voice pipeline.
+    """
+    settings = VoiceSettings.from_env()
+    try:
+        audio = base64.b64decode(payload.audio_base64, validate=True)
+    except (ValueError, binascii.Error) as e:
+        raise HTTPException(status_code=422, detail=f"invalid base64 audio: {e}")
+    if not audio:
+        raise HTTPException(status_code=422, detail="empty recording")
+
+    try:
+        provider = get_provider(settings)
+        # wavRecorder.js encodes real 16-bit PCM WAV in the browser.
+        transcript = await provider.transcribe(audio, "audio/wav")
+    except VoiceProviderError as e:
+        # A configuration/transport problem, not a caller mistake — say so
+        # plainly instead of returning an empty transcript that looks like
+        # the user simply said nothing.
+        raise HTTPException(status_code=503, detail=f"speech-to-text unavailable: {e}")
+
+    return {"transcript": (transcript or "").strip()}
 
 
 @router.get("/config", summary="Feature flags for pages outside the core demo (UI adapter)")

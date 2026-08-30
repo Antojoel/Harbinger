@@ -6,7 +6,7 @@ import ChatPanel from "@/components/chat/ChatPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { EngineStatus } from "@/components/EngineStatus";
 import { useAuth } from "@/context/AuthContext";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 
 function Brand() {
@@ -83,6 +83,7 @@ export const Layout = ({ children }) => {
       {/* mobile rail */}
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <SheetContent side="left" className="w-[264px] bg-card p-0">
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
           <Rail user={user} onLogout={logout} onNavigate={() => setNavOpen(false)} />
         </SheetContent>
       </Sheet>
@@ -126,7 +127,9 @@ export const Layout = ({ children }) => {
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="leading-tight">
-              <div className="font-display text-sm font-semibold tracking-tight">Harbinger Assistant</div>
+              <SheetTitle className="font-display text-sm font-semibold tracking-tight">
+                Harbinger Assistant
+              </SheetTitle>
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Online
               </div>

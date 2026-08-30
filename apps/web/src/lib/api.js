@@ -35,6 +35,8 @@ export const api = {
   outcome: (shipment_id, actual_result, reason = "") =>
     client.post("/outcome", { shipment_id, actual_result, reason }).then((r) => r.data),
   graph: () => client.get("/graph").then((r) => r.data),
+  transcribe: (audio_base64) =>
+    client.post("/transcribe", { audio_base64 }).then((r) => r.data),
   voice: (shipment_id, question) =>
     client.post("/voice", { shipment_id, question }).then((r) => r.data),
   pricing: () => client.get("/pricing").then((r) => r.data),
