@@ -1,13 +1,16 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { api, fmtINR } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Check, KeyRound, Loader2, TrendingDown } from "lucide-react";
+import { Check, KeyRound, Loader2, TrendingDown, Sparkles } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip as RTooltip } from "recharts";
 import { toast } from "sonner";
+import { stagger } from "@/lib/motion";
 
 const SECTION_LABEL = "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground";
+const ANNUAL_DISCOUNT = 0.2;
+const SALES_EMAIL = "sales@harbinger.trade";
 
 function loadRazorpay() {
   return new Promise((resolve) => {
@@ -48,12 +51,24 @@ function useChartColors() {
   return colors;
 }
 
+/** Effective per-month price for the chosen billing cycle. The backend ships
+ *  `price_inr_annual` pre-computed; the local fallback keeps the card honest
+ *  if an older engine build only returns the monthly figure. */
+const monthlyPrice = (tier, annual) => {
+  if (tier.price_inr === null || tier.price_inr === undefined) return null;
+  if (!annual) return tier.price_inr;
+  return tier.price_inr_annual ?? Math.round(tier.price_inr * (1 - ANNUAL_DISCOUNT));
+};
+
 export default function Pricing() {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState("");
+  const [annual, setAnnual] = useState(false);
   const colors = useChartColors();
 
-  useEffect(() => { api.pricing().then(setData); }, []);
+  useEffect(() => {
+    api.pricing().then(setData);
+  }, []);
 
   const checkout = async (tier) => {
     setBusy(tier.id);
@@ -95,21 +110,55 @@ export default function Pricing() {
     }
   };
 
+  const tiers = data?.tiers || [];
   const avg = data?.avg_demurrage_per_day_inr || 5500;
-  const perCheck = data?.tiers?.find((t) => t.price_inr)?.price_inr || 149;
-  const ratio = Math.max(1, Math.round(avg / perCheck));
+
+  // ROI framing uses the cheapest paid plan: the whole month against a single
+  // day of demurrage. No invented savings — both numbers come from the API.
+  const entry = useMemo(
+    () => tiers.filter((t) => t.price_inr).sort((a, b) => a.price_inr - b.price_inr)[0],
+    [tiers]
+  );
+  const entryPrice = monthlyPrice(entry || {}, annual) || 0;
+  const days = avg > 0 ? (entryPrice / avg).toFixed(1) : "0";
   const chartData = [
-    { name: "Our fee", value: perCheck, key: "fee" },
+    { name: `${entry?.name || "Entry"} plan / month`, value: entryPrice, key: "fee" },
     { name: "Demurrage / day avoided", value: avg, key: "demurrage" },
   ];
 
   return (
-    <div className="space-y-8">
-      <header className="cg-rise">
+    <div className="space-y-8" data-testid="pricing-page">
+      <header className="cg-rise text-center">
         <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Pricing</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pay only when it helps. A single avoided hold pays for dozens of checks.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">Simple. Transparent. Predictable.</p>
+
+        <div className="mt-5 inline-flex rounded-full border border-border bg-card p-1 shadow-sm">
+          {[
+            { id: "monthly", label: "Monthly", on: false },
+            { id: "annual", label: "Annual", on: true },
+          ].map((opt) => {
+            const active = annual === opt.on;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setAnnual(opt.on)}
+                aria-pressed={active}
+                data-testid={`billing-toggle-${opt.id}`}
+                className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors duration-fast ${
+                  active
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+                {opt.on && (
+                  <span className={active ? "ml-1.5 opacity-80" : "ml-1.5 text-ok"}>Save 20%</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       {data && !data.razorpay_ready && (
@@ -123,49 +172,94 @@ export default function Pricing() {
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 md:items-center md:gap-6">
-        {data?.tiers?.map((t) => {
+      <div className="grid items-center gap-5 lg:grid-cols-3 lg:gap-6">
+        {tiers.map((t, i) => {
           const highlighted = Boolean(t.highlight);
+          const price = monthlyPrice(t, annual);
+          const isCustom = price === null;
           return (
             <Card
               key={t.id}
+              style={stagger(i, 60)}
               className={
                 highlighted
-                  ? "relative z-10 p-6 shadow-md ring-1 ring-primary transition-transform duration-normal ease-expo md:scale-[1.03]"
-                  : "relative p-6 border-border bg-card/60"
+                  ? "cg-rise relative z-10 flex flex-col p-6 pt-7 shadow-md ring-1 ring-primary transition-transform duration-normal ease-expo lg:scale-[1.045]"
+                  : "cg-rise relative flex flex-col border-border bg-card/60 p-6 pt-7"
               }
             >
               {highlighted && (
-                <span className="absolute -top-2.5 left-6 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-medium text-primary-foreground shadow-sm">
-                  Most popular
+                <span className="absolute -top-3 left-1/2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground shadow-sm">
+                  <Sparkles className="h-3 w-3" /> Most popular
                 </span>
               )}
-              <div className={`font-display text-lg font-semibold ${highlighted ? "text-foreground" : "text-muted-foreground"}`}>
+
+              <div
+                className={`font-display text-lg font-semibold ${
+                  highlighted ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
                 {t.name}
               </div>
+
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="font-mono text-3xl font-semibold tabular-nums text-foreground">
-                  {t.price_inr ? fmtINR(t.price_inr) : "12%"}
+                  {isCustom ? "Custom" : fmtINR(price)}
                 </span>
-                <span className="text-sm text-muted-foreground">/ {t.unit}</span>
+                {!isCustom && <span className="text-sm text-muted-foreground">/ {t.unit}</span>}
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{t.blurb}</p>
-              <ul className="mt-4 space-y-2">
-                {t.features.map((f) => (
+
+              <div className="mt-1 h-4 text-[11px] text-muted-foreground">
+                {isCustom
+                  ? "Volume-based, billed annually"
+                  : annual
+                    ? `billed annually — ${fmtINR(price * 12)}/yr`
+                    : `${fmtINR(monthlyPrice(t, true))}/mo billed annually`}
+              </div>
+
+              <p className="mt-3 text-xs text-muted-foreground">{t.blurb}</p>
+
+              <ul className="mt-4 flex-1 space-y-2">
+                {(t.features || []).map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm">
-                    <Check className={`mt-0.5 h-4 w-4 shrink-0 ${highlighted ? "text-ok" : "text-muted-foreground"}`} /> {f}
+                    <Check
+                      className={`mt-0.5 h-4 w-4 shrink-0 ${highlighted ? "text-ok" : "text-muted-foreground"}`}
+                    />
+                    <span>{f}</span>
                   </li>
                 ))}
               </ul>
-              <Button className="mt-5 w-full gap-2" variant={highlighted ? "default" : "secondary"}
-                onClick={() => checkout(t)} disabled={busy === t.id} data-testid="razorpay-checkout-button">
-                {busy === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {t.price_inr ? `Pay ${fmtINR(t.price_inr)}` : "Start success-fee plan"}
-              </Button>
+
+              {isCustom ? (
+                <Button asChild className="mt-5 w-full" variant="secondary">
+                  <a
+                    href={`mailto:${SALES_EMAIL}?subject=${encodeURIComponent(
+                      "Harbinger Enterprise enquiry"
+                    )}`}
+                    data-testid="contact-sales-button"
+                  >
+                    Contact sales
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  className="mt-5 w-full gap-2"
+                  variant={highlighted ? "default" : "secondary"}
+                  onClick={() => checkout(t)}
+                  disabled={busy === t.id}
+                  data-testid="razorpay-checkout-button"
+                >
+                  {busy === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Get started
+                </Button>
+              )}
             </Card>
           );
         })}
       </div>
+
+      <p className="text-center text-xs text-muted-foreground">
+        All plans include access to the Harbinger Engine.
+      </p>
 
       <Card className="p-6">
         <div className={SECTION_LABEL}>Unit economics</div>
@@ -175,12 +269,13 @@ export default function Pricing() {
         <p className="mt-1 text-xs text-muted-foreground">{data?.note}</p>
 
         <div className="mt-4 rounded-md bg-muted p-4 text-sm text-foreground">
-          <span className="font-mono font-semibold">{fmtINR(perCheck)}</span> per check vs{" "}
-          <span className="font-mono font-semibold">{fmtINR(avg)}/day</span> in demurrage — one prevented
-          hold pays for <span className="font-mono font-semibold">~{ratio}</span> checks.
+          <span className="font-mono font-semibold">{fmtINR(entryPrice)}</span> a month vs{" "}
+          <span className="font-mono font-semibold">{fmtINR(avg)}/day</span> in demurrage — the entry
+          plan costs about <span className="font-mono font-semibold">{days}</span> days of a single
+          held container.
         </div>
 
-        <div className="mt-4 h-56 w-full">
+        <div className="mt-4 h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }} barCategoryGap={28}>
               <XAxis
@@ -193,7 +288,7 @@ export default function Pricing() {
               <YAxis
                 type="category"
                 dataKey="name"
-                width={150}
+                width={170}
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontFamily: "var(--font-mono)", fontSize: 11, fill: colors.axis }}

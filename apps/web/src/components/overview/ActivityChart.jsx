@@ -34,7 +34,7 @@ export function ActivityChart({ series }) {
     <div>
       <div className="h-[196px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 6, right: 30, left: -22, bottom: 0 }}>
             <defs>
               <linearGradient id="ovChecks" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={colors.c1} stopOpacity={0.34} />

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, fmtINR } from "@/lib/api";
+import { api } from "@/lib/api";
 import { stagger } from "@/lib/motion";
 import { RiskBadge } from "@/components/RiskBadge";
 import { StatusPill } from "@/components/StatusPill";
@@ -21,7 +21,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { blobToBase64 } from "@/lib/wavRecorder";
 import { toast } from "sonner";
-import { AlertTriangle, ChevronRight, Plus, FileUp, SlidersHorizontal, PackageSearch, Info } from "lucide-react";
+import { ChevronRight, Plus, FileUp, SlidersHorizontal, PackageSearch, Info } from "lucide-react";
 
 const EMPTY_SHIPMENT_FORM = {
   shipment_id: "",
@@ -318,108 +318,20 @@ function AddShipmentDialog({ open, onOpenChange, onCreated }) {
   );
 }
 
-const BAND_TEXT = { high: "text-danger-foreground", medium: "text-warn-foreground", low: "text-ok-foreground" };
-const bandOf = (n) => (n >= 60 ? "high" : n >= 25 ? "medium" : "low");
-
-const STAT_LABEL = "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground";
-
-function MiniStat({ label, value, sub, valueClass = "", delay }) {
-  return (
-    <Card className="cg-rise flex flex-col justify-between p-4" style={delay}>
-      <span className={STAT_LABEL}>{label}</span>
-      <span className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</span>
-      <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">{sub}</span>
-    </Card>
-  );
-}
-
-function ControlBand({ stats }) {
-  if (!stats) {
-    return (
-      <section className="grid gap-3 grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr]">
-        <Skeleton className="col-span-2 h-[128px] w-full rounded-lg lg:col-span-1" />
-        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[128px] w-full rounded-lg" />)}
-      </section>
-    );
-  }
-  const atRisk = stats.at_risk;
-  const avg = stats.avg_hold_probability;
-  return (
-    <section className="grid grid-cols-2 gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr]">
-      {/* hero — cost avoided */}
-      <Card className="cg-rise col-span-2 flex flex-col justify-between p-5 lg:col-span-1">
-        <div className="flex items-center justify-between">
-          <span className={STAT_LABEL}>Cost avoided</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-2 py-0.5 text-[11px] font-medium text-ok-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-            demurrage prevented
-          </span>
-        </div>
-        <div className="mt-3 font-mono text-4xl font-semibold tabular-nums tracking-tight text-foreground">
-          {fmtINR(stats.cost_avoided_inr)}
-        </div>
-        <div className="mt-2 text-xs text-muted-foreground">
-          {stats.outcomes_recorded > 0 ? (
-            <>
-              across <span className="font-mono tabular-nums">{stats.outcomes_recorded}</span> recorded outcome
-              {stats.outcomes_recorded === 1 ? "" : "s"}
-            </>
-          ) : (
-            "Record a real outcome to start the ledger"
-          )}
-        </div>
-      </Card>
-
-      <MiniStat
-        label="Shipments"
-        value={stats.total_shipments}
-        sub="in the book"
-        delay={stagger(1)}
-      />
-      <MiniStat
-        label="At risk"
-        value={atRisk}
-        valueClass={atRisk > 0 ? "text-warn" : ""}
-        sub={<>{atRisk > 0 && <AlertTriangle className="h-3 w-3 text-warn" />} hold risk ≥ 25</>}
-        delay={stagger(2)}
-      />
-      <MiniStat
-        label="Avg risk"
-        value={`${avg}%`}
-        valueClass={BAND_TEXT[bandOf(avg)]}
-        sub={<span className="capitalize">{bandOf(avg)} band</span>}
-        delay={stagger(3)}
-      />
-    </section>
-  );
-}
-
 const STATUS_OPTS = ["all", "Draft", "Ready to file", "Cleared", "Held", "Rejected"];
 const RISK_OPTS = ["all", "high", "medium", "low"];
 
-export default function Dashboard() {
+export default function Shipments() {
   const navigate = useNavigate();
-  const [stats, setStats] = useState(null);
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState("all");
   const [risk, setRisk] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
 
-  const load = async () => {
-    const [s, list] = await Promise.all([api.stats(), api.shipments({ status, risk })]);
-    setStats(s);
-    setRows(list);
-  };
-
   useEffect(() => {
     api.shipments({ status, risk }).then(setRows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, risk]);
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const filtered = status !== "all" || risk !== "all";
   const resetFilters = () => { setStatus("all"); setRisk("all"); };
@@ -428,9 +340,9 @@ export default function Dashboard() {
     <div className="space-y-6">
       <header className="cg-rise flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Control Tower</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Shipments</h1>
           <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            Import containers, priced by the hour they might stall. <MockedBadge />
+            The full manifest — every container in the book, priced by the hour it might stall. <MockedBadge />
           </p>
         </div>
         <Button onClick={() => setAddOpen(true)}>
@@ -443,8 +355,6 @@ export default function Dashboard() {
         onOpenChange={setAddOpen}
         onCreated={(id) => navigate(`/shipment/${id}`)}
       />
-
-      <ControlBand stats={stats} />
 
       {/* quiet inline filter strip */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">

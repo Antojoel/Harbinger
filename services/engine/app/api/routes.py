@@ -653,20 +653,49 @@ async def outcome_ui_endpoint(payload: OutcomeRequest):
 
 @router.get("/pricing", summary="Pricing tiers for the Pricing page (UI adapter)")
 async def pricing_endpoint():
+    # Three published tiers. `price_inr_annual` is the effective per-month
+    # price when billed yearly (20% off, pre-computed here so the UI never
+    # has to invent a discount). Enterprise is quote-only: price_inr is None
+    # and the UI turns its CTA into a contact-sales action.
     return {
         "tiers": [
             {
-                "id": "per-shipment", "name": "Per Shipment", "price_inr": 149, "unit": "shipment",
-                "highlight": True,
-                "features": ["Full risk dossier per shipment", "Auto-fix internal defects",
-                             "Human-approved certificate drafts", "Immune-memory learning"],
-                "blurb": "Pay only when a shipment is checked.",
+                "id": "starter", "name": "Starter", "price_inr": 7999, "price_inr_annual": 6399,
+                "unit": "mo", "highlight": False,
+                "features": [
+                    "Up to 500 shipments / month",
+                    "Full risk dossier per shipment",
+                    "Auto-fix internal defects",
+                    "Email + document workspace",
+                    "Community support",
+                ],
+                "blurb": "For teams proving the value of pre-clearance checks.",
             },
             {
-                "id": "success-fee", "name": "Success Fee", "price_inr": 0,
-                "unit": "12% of verified demurrage avoided", "highlight": False,
-                "features": ["No fixed fee", "Pay a share of what we save you", "Audit trail of avoided charges"],
-                "blurb": "Aligned pricing — we earn only when you save.",
+                "id": "growth", "name": "Growth", "price_inr": 23999, "price_inr_annual": 19199,
+                "unit": "mo", "highlight": True,
+                "features": [
+                    "Up to 2,000 shipments / month",
+                    "Everything in Starter",
+                    "Human-approved certificate drafts",
+                    "Immune-memory pattern learning",
+                    "Graph explorer + pattern library",
+                    "Priority support, 8h response",
+                ],
+                "blurb": "The working plan for a busy customs desk.",
+            },
+            {
+                "id": "enterprise", "name": "Enterprise", "price_inr": None, "price_inr_annual": None,
+                "unit": "mo", "highlight": False,
+                "features": [
+                    "Unlimited shipments",
+                    "Everything in Growth",
+                    "Private Neo4j immune memory",
+                    "SSO, audit log, data residency",
+                    "Custom broker + ERP integrations",
+                    "Dedicated success engineer, SLA",
+                ],
+                "blurb": "For brokers and shippers running at national scale.",
             },
         ],
         "avg_demurrage_per_day_inr": 5500,

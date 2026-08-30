@@ -27,16 +27,16 @@ export function RiskDonut({ bands }) {
     : [{ name: "No shipments", value: 1, fill: colors.grid }];
 
   return (
-    <div className="flex flex-col items-center gap-5 sm:flex-row sm:gap-2">
-      <div className="relative h-[172px] w-[172px] shrink-0">
+    <div className="flex h-full flex-col items-center justify-center gap-5 sm:flex-row sm:gap-4">
+      <div className="relative h-[160px] w-[160px] shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={data}
               dataKey="value"
               nameKey="name"
-              innerRadius={54}
-              outerRadius={80}
+              innerRadius={50}
+              outerRadius={74}
               paddingAngle={total > 1 ? 2 : 0}
               startAngle={90}
               endAngle={-270}
@@ -59,16 +59,15 @@ export function RiskDonut({ bands }) {
         </div>
       </div>
 
-      <ul className="w-full flex-1 space-y-1 sm:pl-4">
+      <ul className="w-full min-w-0 flex-1 space-y-1">
         {BANDS.map((b) => (
-          <li
-            key={b.key}
-            className="flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm"
-          >
+          <li key={b.key} className="flex items-center gap-2.5 rounded-lg py-2 text-sm">
             <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${b.dot}`} />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">{b.label}</span>
-            <span className="font-mono text-sm font-semibold tabular-nums">{safe[b.key]}</span>
-            <span className="w-10 text-right font-mono text-xs tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono text-sm font-semibold tabular-nums">
+              {safe[b.key]}
+            </span>
+            <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
               {pct(safe[b.key], total)}%
             </span>
           </li>

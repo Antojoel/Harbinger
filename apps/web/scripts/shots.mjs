@@ -1,5 +1,5 @@
-// Visual-loop screenshotter. Logs in as guest, walks the app, saves PNGs.
-// Usage: node scripts/shots.mjs [outDir]  (needs vite on :5199 + engine on :8000)
+// Visual-check screenshotter. Logs in as guest, walks every route.
+// Usage: PLAYWRIGHT_BROWSERS_PATH=0 node scripts/shots.mjs [outDir]
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
@@ -7,79 +7,54 @@ const BASE = process.env.SHOT_BASE || "http://localhost:5199";
 const OUT = process.argv[2] || "/tmp/claude-1000/-home-vicky-Documents-GIT-Harbinger/2635542e-1216-4be4-b607-06b47cbcf547/scratchpad/shots";
 mkdirSync(OUT, { recursive: true });
 
-const shots = [
-  { name: "01-login", path: "/", pre: async () => {} },
-  {
-    name: "02-dashboard",
-    path: "/",
-    pre: async (page) => {
-      // guest login
-      const guest = page.getByTestId("continue-as-guest-button");
-      if (await guest.isVisible().catch(() => false)) {
-        await guest.click();
-        await page.waitForTimeout(1200);
-      }
-      // dismiss onboarding
-      const skip = page.getByTestId("onboarding-skip-button");
-      if (await skip.isVisible().catch(() => false)) await skip.click();
-      await page.waitForTimeout(600);
-    },
-  },
-  { name: "03-pricing", path: "/pricing" },
-  { name: "04-email", path: "/email" },
-  { name: "05-integrations", path: "/integrations" },
+const ROUTES = [
+  ["/", "01-overview"],
+  ["/shipments", "02-shipments"],
+  ["/risk-check", "03-risk-check"],
+  ["/patterns", "05-patterns"],
+  ["/graph", "06-graph"],
+  ["/pricing", "07-pricing"],
+  ["/email", "08-escalations"],
+  ["/integrations", "09-integrations"],
 ];
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+const ctx = await browser.newContext({ viewport: { width: 1512, height: 950 }, deviceScaleFactor: 2 });
 const page = await ctx.newPage();
-page.on("console", (m) => m.type() === "error" && console.log("  [console.error]", m.text().slice(0, 200)));
+const errors = [];
+page.on("console", (m) => m.type() === "error" && errors.push(m.text().slice(0, 160)));
+page.on("pageerror", (e) => errors.push("PAGEERROR " + String(e).slice(0, 160)));
 
-for (const s of shots) {
-  await page.goto(BASE + s.path, { waitUntil: "networkidle" }).catch(() => {});
-  if (s.pre) await s.pre(page);
-  await page.waitForTimeout(900);
-  await page.screenshot({ path: `${OUT}/${s.name}.png`, fullPage: true });
-  console.log("saved", s.name);
+await page.goto(BASE + "/", { waitUntil: "networkidle" }).catch(() => {});
+const guest = page.getByTestId("continue-as-guest-button");
+if (await guest.isVisible().catch(() => false)) {
+  await guest.click();
+  await page.waitForTimeout(1400);
+  const skip = page.getByTestId("onboarding-skip-button");
+  if (await skip.isVisible().catch(() => false)) await skip.click();
+  await page.waitForTimeout(500);
 }
 
-// shipment detail — click first row
-await page.goto(BASE + "/", { waitUntil: "networkidle" }).catch(() => {});
-await page.waitForTimeout(700);
+for (const [path, name] of ROUTES) {
+  await page.goto(BASE + path, { waitUntil: "networkidle" }).catch(() => {});
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true });
+  console.log("·", name);
+}
+
+// shipment dossier
+await page.goto(BASE + "/shipments", { waitUntil: "networkidle" }).catch(() => {});
+await page.waitForTimeout(900);
 const row = page.getByTestId("shipment-row-open-detail").first();
 if (await row.isVisible().catch(() => false)) {
   await row.click();
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1000);
   const sim = page.getByTestId("simulate-button");
-  if (await sim.isVisible().catch(() => false)) { await sim.click(); await page.waitForTimeout(1500); }
-  await page.screenshot({ path: `${OUT}/06-shipment-detail.png`, fullPage: true });
-  console.log("saved 06-shipment-detail");
+  if (await sim.isVisible().catch(() => false)) { await sim.click(); await page.waitForTimeout(1800); }
+  await page.screenshot({ path: `${OUT}/04-dossier.png`, fullPage: true });
+  console.log("· 04-dossier");
 }
 
-// assistant dock — wide viewport so the right rail is visible
-await ctx.close();
-const wide = await browser.newContext({ viewport: { width: 1680, height: 1000 }, deviceScaleFactor: 2 });
-const wp = await wide.newPage();
-await wp.goto(BASE + "/", { waitUntil: "networkidle" }).catch(() => {});
-await wp.waitForTimeout(600);
-const wpGuest = wp.getByTestId("continue-as-guest-button");
-if (await wpGuest.isVisible().catch(() => false)) {
-  await wpGuest.click();
-  await wp.waitForTimeout(1200);
-  const wpSkip = wp.getByTestId("onboarding-skip-button");
-  if (await wpSkip.isVisible().catch(() => false)) await wpSkip.click();
-  await wp.waitForTimeout(500);
-}
-const at = wp.getByTestId("dock-tab-assistant");
-if (await at.isVisible().catch(() => false)) {
-  await at.click();
-  await wp.waitForTimeout(500);
-  await wp.getByTestId("assistant-composer").fill("Why is this flagged?");
-  await wp.getByTestId("assistant-send").click();
-  await wp.waitForTimeout(2500);
-}
-await wp.screenshot({ path: `${OUT}/07-assistant.png`, fullPage: false });
-console.log("saved 07-assistant");
-
+if (errors.length) console.log("\nCONSOLE ERRORS:\n" + [...new Set(errors)].join("\n"));
 await browser.close();
-console.log("done ->", OUT);
+console.log("\n->", OUT);

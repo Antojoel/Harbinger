@@ -16,7 +16,7 @@ import { useGraph } from "@/context/GraphContext";
 //   Shipment               -> --warn           (34 92% 46% / 34 90% 58%)
 //   Pattern                -> --chart-4 purple  (262 52% 58% / 262 60% 68%)
 //   RejectionReason        -> --danger         (356 68% 50% / 356 72% 62%)
-const TYPE_STYLE = {
+export const TYPE_STYLE = {
   HSCode: { dot: "hsl(222 82% 60%)", fg: "hsl(222 78% 62%)" },
   Country: { dot: "hsl(220 13% 55%)", fg: "hsl(220 12% 56%)" },
   CertificateRequirement: { dot: "hsl(172 58% 42%)", fg: "hsl(172 52% 45%)" },
@@ -105,8 +105,15 @@ function layoutWithForces(nodes, edges) {
   return positions;
 }
 
-export const GraphPanel = ({ compact = false }) => {
-  const { graph, newIds, refresh } = useGraph();
+/** `nodes` / `edges` are optional overrides used by the Graph Explorer page to
+ *  render a filtered subset. Omitted (the default everywhere else), the panel
+ *  renders the full graph straight from GraphContext exactly as before. */
+export const GraphPanel = ({ compact = false, nodes, edges }) => {
+  const { graph: fullGraph, newIds, refresh } = useGraph();
+  const graph = useMemo(
+    () => ({ nodes: nodes ?? fullGraph.nodes, edges: edges ?? fullGraph.edges }),
+    [nodes, edges, fullGraph]
+  );
   const flowRef = useRef(null);
   const wrapRef = useRef(null);
 

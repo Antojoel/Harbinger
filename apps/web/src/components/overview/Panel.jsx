@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  *  right-hand action, then body. Shared by every block on the Overview. */
 export function Panel({ title, hint, action, className = "", bodyClassName = "", children }) {
   return (
-    <Card className={cn("rounded-xl", className)}>
+    <Card className={cn("flex h-full flex-col rounded-xl", className)}>
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
         <div className="min-w-0">
           <h2 className="font-display text-[15px] font-semibold tracking-tight">{title}</h2>
@@ -14,7 +14,7 @@ export function Panel({ title, hint, action, className = "", bodyClassName = "",
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className={cn("px-5 pb-5 pt-4", bodyClassName)}>{children}</div>
+      <div className={cn("flex-1 px-5 pb-5 pt-4", bodyClassName)}>{children}</div>
     </Card>
   );
 }
