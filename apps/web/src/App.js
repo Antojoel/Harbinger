@@ -1,5 +1,6 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ThemeProvider } from "next-themes";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { GraphProvider } from "@/context/GraphContext";
 import { Layout } from "@/components/Layout";
@@ -50,12 +51,14 @@ function AuthGate() {
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <AuthProvider>
-          <AuthGate />
-          <Toaster position="top-right" richColors />
-        </AuthProvider>
-      </BrowserRouter>
+      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <BrowserRouter>
+          <AuthProvider>
+            <AuthGate />
+            <Toaster position="top-right" richColors />
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </div>
   );
 }
